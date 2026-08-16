@@ -2,8 +2,10 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Tldraw, type Editor } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { makeApplier } from './lib/applyActions'
+import { customShapeUtils } from './shapes'
 import { fetchSnapshot, getOrCreateSessionId, saveSnapshot } from './lib/session'
 import { streamAgent } from './lib/transport'
+import type { CritiqueEvent } from './lib/types'
 
 const SAMPLE_SQL = `CREATE TABLE users (
   id SERIAL PRIMARY KEY,
@@ -51,12 +53,17 @@ export default function App() {
   const [isError, setIsError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState('autosave on')
+  const [passes, setPasses] = useState<CritiqueEvent[]>([])
 
   const kind = useMemo(() => detectKind(input), [input])
 
   // Restore the last snapshot for this browser's session, then autosave on change.
   const onMount = useCallback((editor: Editor) => {
     editorRef.current = editor
+
+    // Dark canvas is the product's default look (Eraser-class diagrams read dark-first);
+    // users can still flip it from the canvas menu.
+    editor.user.updateUserPreferences({ colorScheme: 'dark' })
 
     let timer: number | undefined
     const unlisten = editor.store.listen(
@@ -94,6 +101,7 @@ export default function App() {
 
     setBusy(true)
     setIsError(false)
+    setPasses([])
     setStatus('Thinking…')
 
     const ids = Array.from(editor.getCurrentPageShapeIds())
@@ -101,6 +109,7 @@ export default function App() {
 
     const apply = makeApplier(editor)
     let n = 0
+    let refined = false
     try {
       await streamAgent(
         { message: '', payload: input, session_id: sessionIdRef.current ?? 'web' },
@@ -109,7 +118,21 @@ export default function App() {
           n += 1
           setStatus(`Drawing… (${n})`)
         },
-        () => setStatus(n ? `Done — ${n} shapes.` : 'Nothing to draw for this input.'),
+        () =>
+          setStatus(
+            n
+              ? `Done — ${n} shapes${refined ? ' · self-corrected' : ''}.`
+              : 'Nothing to draw for this input.',
+          ),
+        (c) => {
+          setPasses((prev) => [...prev, c])
+          if (c.needs_refine) refined = true
+          setStatus(
+            c.needs_refine
+              ? `Critic: found ${c.issue_count} issue${c.issue_count !== 1 ? 's' : ''} — adjusting…`
+              : 'Critic: layout clean ✓',
+          )
+        },
       )
       if (n) editor.zoomToFit()
     } catch (e) {
@@ -160,6 +183,45 @@ export default function App() {
           {status}
         </p>
 
+        {passes.length > 0 && (
+          <div className="critic" aria-live="polite">
+            <div className="critic-head">
+              <span className="critic-title">Critic</span>
+              <span className="critic-sub">self-correction</span>
+            </div>
+            <ol className="critic-passes">
+              {passes.map((p) => (
+                <li key={p.pass} className="critic-pass" data-refine={p.needs_refine}>
+                  <span className="dot" aria-hidden="true" />
+                  <div className="critic-body">
+                    <div className="critic-line">
+                      <span className="critic-pass-n">Pass {p.pass}</span>
+                      <span className="critic-src">
+                        {p.source === 'geometry+vision' ? 'vision + geometry' : 'geometry'}
+                      </span>
+                    </div>
+                    {p.needs_refine ? (
+                      <>
+                        <p className="critic-summary">{p.summary}</p>
+                        <p className="critic-note">
+                          {p.issue_count} issue{p.issue_count !== 1 ? 's' : ''} → widening spacing
+                        </p>
+                      </>
+                    ) : p.has_issues ? (
+                      <p className="critic-note">
+                        {p.issue_count} advisory warning{p.issue_count !== 1 ? 's' : ''} —{' '}
+                        {p.summary}
+                      </p>
+                    ) : (
+                      <p className="critic-note critic-note--ok">Layout clean ✓</p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
         <footer className="foot">
           <span>SQL &amp; OpenAPI · live</span>
           <span>{saved}</span>
@@ -167,7 +229,7 @@ export default function App() {
       </aside>
 
       <main className="canvas">
-        <Tldraw onMount={onMount} />
+        <Tldraw onMount={onMount} shapeUtils={customShapeUtils} />
       </main>
     </div>
   )

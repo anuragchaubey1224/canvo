@@ -1,12 +1,13 @@
 // Streams AgentActions from the Python agent-service over SSE.
 
 import { API } from './api'
-import type { AgentAction, AgentInput } from './types'
+import type { AgentAction, AgentInput, CritiqueEvent } from './types'
 
 export async function streamAgent(
   input: AgentInput,
   onAction: (action: AgentAction) => void,
   onDone?: (info: unknown) => void,
+  onCritique?: (critique: CritiqueEvent) => void,
 ): Promise<void> {
   const res = await fetch(`${API}/agent/stream`, {
     method: 'POST',
@@ -39,6 +40,7 @@ export async function streamAgent(
 
       const parsed = safeParse(dataLines.join('\n'))
       if (eventType === 'done') onDone?.(parsed)
+      else if (eventType === 'critique') onCritique?.(parsed as CritiqueEvent)
       else if (parsed) onAction(parsed as AgentAction)
     }
   }

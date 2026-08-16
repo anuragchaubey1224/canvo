@@ -12,6 +12,8 @@
   --accent-weak: rgba(90, 121, 245, 0.1);
   --danger: #c53b47;
   --danger-weak: rgba(197, 59, 71, 0.1);
+  --success: #12a150;
+  --warn: #c77d0a;
 
   --r-sm: 6px;
   --r-md: 10px;
@@ -38,6 +40,8 @@
     --accent-weak: rgba(110, 139, 255, 0.14);
     --danger: #f1616e;
     --danger-weak: rgba(241, 97, 110, 0.14);
+    --success: #3dd68c;
+    --warn: #f0b34e;
     --elev-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border);
   }
 }
@@ -264,6 +268,119 @@ textarea:focus-visible {
   color: var(--danger);
 }
 
+/* ---- Critic (self-correction trace) ---- */
+.critic {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.critic-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.critic-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.critic-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.critic-passes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.critic-pass {
+  display: flex;
+  gap: 9px;
+  animation: critic-in 200ms var(--ease) both;
+}
+
+.critic-pass .dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.critic-pass[data-refine="true"] .dot {
+  background: var(--warn);
+}
+
+.critic-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.critic-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.critic-pass-n {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.critic-src {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
+.critic-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.critic-note {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.critic-note--ok {
+  color: var(--success);
+}
+
+@keyframes critic-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .foot {
   display: flex;
   justify-content: space-between;
@@ -279,5 +396,8 @@ textarea:focus-visible {
   }
   .spinner {
     animation-duration: 1.4s;
+  }
+  .critic-pass {
+    animation: none;
   }
 }
