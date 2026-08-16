@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Optional, TypedDict
 
 from app.schema import AgentAction, CanvasContext
+from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema
 
 
@@ -30,6 +31,7 @@ class AgentState(TypedDict, total=False):
     # set by the Router
     input_kind: str  # "text" | "sql" | "openapi" | "code"
     parsed: Optional[ParsedSchema]
+    parsed_api: Optional[ParsedAPI]
     # produced by the graph
     plan: Optional[Plan]
     actions: list[AgentAction]

@@ -1,20 +1,22 @@
 """LangGraph nodes: Router → Planner → Drawer → Critic.
 
-Step 1 makes the **SQL → ERD** path real and deterministic (no LLM): the Router
-detects a SQL schema and parses it, and the Drawer lays out an ERD from the parsed
-tables. The `text` path (freeform description) is still a stub — it becomes the first
-Claude tool-calling node in a later step (PLAN.md §5).
+Deterministic, real paths so far (no LLM):
+  - SQL DDL     → ERD          (parse_sql + build_erd_actions)
+  - OpenAPI/Swagger → API surface (parse_openapi + build_api_actions)
+The freeform `text` path is still a stub — it becomes the first Claude tool-calling
+node once an LLM key is configured (PLAN.md §5).
 """
 from __future__ import annotations
 
-from app.graph.layout import build_erd_actions
+from app.graph.layout import build_api_actions, build_erd_actions
 from app.graph.state import AgentState
 from app.schema import AgentAction, Shape
+from app.tools.parse_openapi import looks_like_openapi, parse_openapi
 from app.tools.parse_sql import looks_like_sql, parse_sql
 
 
 def router(state: AgentState) -> AgentState:
-    """Classify the input and, when structured, parse it into a schema."""
+    """Classify the input and, when structured, parse it."""
     text = state.get("payload") or state.get("user_message", "")
     forced = state.get("input_kind")
 
@@ -22,6 +24,11 @@ def router(state: AgentState) -> AgentState:
         parsed = parse_sql(text)
         if not parsed.is_empty:
             return {"input_kind": "sql", "parsed": parsed}
+
+    if forced == "openapi" or (forced is None and looks_like_openapi(text)):
+        api = parse_openapi(text)
+        if not api.is_empty:
+            return {"input_kind": "openapi", "parsed_api": api}
 
     return {"input_kind": forced or "text", "parsed": None}
 
@@ -33,10 +40,18 @@ def planner(state: AgentState) -> AgentState:
         return {
             "plan": {
                 "nodes": [{"id": t.name, "label": t.name} for t in parsed.tables],
-                "edges": [
-                    {"from": r.from_table, "to": r.to_table} for r in parsed.relations
-                ],
+                "edges": [{"from": r.from_table, "to": r.to_table} for r in parsed.relations],
                 "notes": "deterministic ERD from SQL",
+            }
+        }
+
+    api = state.get("parsed_api")
+    if api and api.groups:
+        return {
+            "plan": {
+                "nodes": [{"id": g.name, "label": g.name} for g in api.groups],
+                "edges": [{"from": "api-root", "to": g.name} for g in api.groups],
+                "notes": "API surface from OpenAPI",
             }
         }
 
@@ -57,6 +72,10 @@ def drawer(state: AgentState) -> AgentState:
     if parsed and parsed.tables:
         return {"actions": build_erd_actions(parsed)}
 
+    api = state.get("parsed_api")
+    if api and api.groups:
+        return {"actions": build_api_actions(api)}
+
     # text path (stub)
     label = (state.get("user_message", "") or "Step")[:24]
     actions = [
@@ -70,8 +89,7 @@ def drawer(state: AgentState) -> AgentState:
 def critic(state: AgentState) -> AgentState:
     """Inspect the result and decide whether a refine pass is needed.
 
-    Step-1: no vision check yet → always 'no issues'. Once wired, it reads the
-    screenshot + shape data and flags overlaps / missing steps (PLAN.md §5).
+    Still a stub → always 'no issues'. Vision-based self-correction lands in v1 (PLAN.md §5).
     """
     return {
         "critique": {"has_issues": False, "issues": []},

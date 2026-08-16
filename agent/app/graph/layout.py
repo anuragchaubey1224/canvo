@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 from app.schema import AgentAction, Shape
+from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema, Table
 
 _BOX_W = 240
@@ -79,6 +80,57 @@ def build_erd_actions(schema: ParsedSchema, *, cols: int = 3) -> list[AgentActio
                     from_id=_tid(rel.from_table),
                     to_id=_tid(rel.to_table),
                     text=f"{rel.from_column} → {rel.to_column}",
+                ),
+            )
+        )
+
+    return actions
+
+
+def build_api_actions(api: ParsedAPI, *, cols: int = 3) -> list[AgentAction]:
+    """A root API node + one box per group listing its endpoints, arrows root→group."""
+    actions: list[AgentAction] = []
+    root_id = "api-root"
+
+    actions.append(
+        AgentAction(
+            type="create",
+            shape=Shape(
+                id=root_id,
+                type="geo",
+                x=_X0,
+                y=_Y0,
+                w=_BOX_W,
+                h=80,
+                text=f"API: {api.title}\n{api.endpoint_count} endpoints · {len(api.groups)} groups",
+            ),
+        )
+    )
+
+    y_groups = _Y0 + _GAP_Y
+    for i, group in enumerate(api.groups):
+        row, col = divmod(i, max(1, cols))
+        x = _X0 + col * _GAP_X
+        y = y_groups + row * _GAP_Y
+        lines = [group.name] + [f"{e.method} {e.path}" for e in group.endpoints]
+        height = max(80, 44 + 20 * len(group.endpoints))
+        gid = f"grp-{_slug(group.name)}"
+        actions.append(
+            AgentAction(
+                type="create",
+                shape=Shape(id=gid, type="geo", x=x, y=y, w=_BOX_W, h=height, text="\n".join(lines)),
+            )
+        )
+        actions.append(
+            AgentAction(
+                type="create",
+                shape=Shape(
+                    id=f"edge-{_slug(group.name)}",
+                    type="arrow",
+                    x=x,
+                    y=y,
+                    from_id=root_id,
+                    to_id=gid,
                 ),
             )
         )

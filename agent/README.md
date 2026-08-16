@@ -13,7 +13,8 @@ agent/
 │   ├── llm.py            # provider abstraction (Anthropic / OpenRouter / …) + BYOK
 │   ├── guardrails.py     # cost/iteration caps (stubs; real safety layer in v1)
 │   ├── tools/
-│   │   └── parse_sql.py  # SQL DDL → structured schema (tables, columns, relations)
+│   │   ├── parse_sql.py      # SQL DDL → schema (tables, columns, relations)
+│   │   └── parse_openapi.py  # OpenAPI/Swagger (JSON/YAML) → grouped API surface
 │   └── graph/
 │       ├── state.py      # AgentState (LangGraph state)
 │       ├── nodes.py      # router / planner / drawer / critic
@@ -40,6 +41,8 @@ uvicorn app.main:app --reload
 
 - ✅ **SQL schema → ERD** — real and deterministic (no LLM). Router detects SQL, `parse_sql` builds a
   structured schema, and `layout.py` emits table boxes + bound relation arrows. Covered by `tests/`.
+- ✅ **OpenAPI/Swagger → API surface** — deterministic (no LLM). `parse_openapi` (JSON or YAML) groups
+  operations by tag, and `layout.py` emits a root node + per-group endpoint boxes with arrows.
 - 🚧 **Freeform text → diagram** — still a hardcoded stub; becomes the first Claude tool-calling node.
 - 🚧 **Critic** — always "no issues" for now; vision-based self-correction lands in v1 (`PLAN.md` §5).
 
