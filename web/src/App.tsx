@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Tldraw, type Editor } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { makeApplier } from './lib/applyActions'
+import { fetchSnapshot, getOrCreateSessionId, saveSnapshot } from './lib/session'
 import { streamAgent } from './lib/transport'
 
 const SAMPLE_SQL = `CREATE TABLE users (
@@ -44,12 +45,48 @@ const KIND_LABEL: Record<Kind, string> = { sql: 'SQL', openapi: 'OpenAPI', text:
 
 export default function App() {
   const editorRef = useRef<Editor | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
   const [input, setInput] = useState(SAMPLE_SQL)
   const [status, setStatus] = useState('Paste a SQL schema or OpenAPI spec, then Generate.')
   const [isError, setIsError] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState('autosave on')
 
   const kind = useMemo(() => detectKind(input), [input])
+
+  // Restore the last snapshot for this browser's session, then autosave on change.
+  const onMount = useCallback((editor: Editor) => {
+    editorRef.current = editor
+
+    let timer: number | undefined
+    const unlisten = editor.store.listen(
+      () => {
+        window.clearTimeout(timer)
+        timer = window.setTimeout(() => {
+          const id = sessionIdRef.current
+          if (!id) return
+          setSaved('Saving…')
+          void saveSnapshot(id, JSON.stringify(editor.getSnapshot())).then(() =>
+            setSaved('Saved ✓'),
+          )
+        }, 800)
+      },
+      { scope: 'document' },
+    )
+
+    void (async () => {
+      try {
+        const id = await getOrCreateSessionId()
+        sessionIdRef.current = id
+        const snap = await fetchSnapshot(id)
+        if (snap) editor.loadSnapshot(JSON.parse(snap))
+      } catch {
+        // offline / agent down — persistence just no-ops
+      }
+    })()
+
+    return () => unlisten()
+  }, [])
 
   const onGenerate = useCallback(async () => {
     const editor = editorRef.current
@@ -66,7 +103,7 @@ export default function App() {
     let n = 0
     try {
       await streamAgent(
-        { message: '', payload: input, session_id: 'web' },
+        { message: '', payload: input, session_id: sessionIdRef.current ?? 'web' },
         (action) => {
           apply(action)
           n += 1
@@ -124,17 +161,13 @@ export default function App() {
         </p>
 
         <footer className="foot">
-          <span>SQL & OpenAPI · live</span>
-          <span>Text → LLM soon</span>
+          <span>SQL &amp; OpenAPI · live</span>
+          <span>{saved}</span>
         </footer>
       </aside>
 
       <main className="canvas">
-        <Tldraw
-          onMount={(editor) => {
-            editorRef.current = editor
-          }}
-        />
+        <Tldraw onMount={onMount} />
       </main>
     </div>
   )

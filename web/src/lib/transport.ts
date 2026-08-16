@@ -1,10 +1,7 @@
 // Streams AgentActions from the Python agent-service over SSE.
 
+import { API } from './api'
 import type { AgentAction, AgentInput } from './types'
-
-const API =
-  (import.meta as unknown as { env?: Record<string, string | undefined> }).env
-    ?.VITE_AGENT_URL ?? 'http://127.0.0.1:8000'
 
 export async function streamAgent(
   input: AgentInput,
