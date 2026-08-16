@@ -144,7 +144,11 @@ def render_actions(actions: list[AgentAction], *, scale_cap: int = _MAX_W) -> by
     for s in arrows:
         src = all_rects.get(s.from_id or "")
         dst = all_rects.get(s.to_id or "")
-        if src and dst:
+        if s.points and len(s.points) >= 4:  # routed by our router — draw the real path
+            pts = [(tx(x), ty(y)) for x, y in zip(s.points[::2], s.points[1::2], strict=False)]
+            draw.line(pts, fill=_ARROW, width=2)
+            _arrowhead(draw, pts[-2], pts[-1])
+        elif src and dst:
             path = elbow_path(src, dst)
             pts = [(tx(path[0][0][0]), ty(path[0][0][1]))]
             pts += [(tx(x), ty(y)) for (_a, (x, y)) in path]

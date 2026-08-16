@@ -35,6 +35,12 @@ class Shape(BaseModel):
     color: str | None = None  # tldraw color token, e.g. "blue" | "violet" | "orange"
     parent_id: str | None = None  # membership: id of the container this shape sits in
     icon: str | None = None  # icon name, e.g. "server" | "database" | "shield" (open set)
+    # Routed arrows (our own obstacle-avoiding router): absolute orthogonal waypoints as
+    # a flat [x0,y0,x1,y1,...] list, plus an anchor for the label chip. Arrows without
+    # points fall back to the client's bound elbow arrows.
+    points: list[float] | None = None
+    label_x: float | None = None
+    label_y: float | None = None
 
 
 class CanvasContext(BaseModel):

@@ -16,6 +16,7 @@ from app.graph.critic_vision import critique_image
 from app.graph.critique import analyze_geometry, geometry_summary
 from app.graph.layout import build_api_actions, build_erd_actions, build_graph_actions
 from app.graph.planner_llm import plan_from_text
+from app.graph.route import route_arrows
 from app.graph.state import AgentState, Critique
 from app.guardrails import MAX_ITERATIONS
 from app.schema import AgentAction, Shape
@@ -103,15 +104,15 @@ def drawer(state: AgentState) -> AgentState:
 
     parsed = state.get("parsed")
     if parsed and parsed.tables:
-        return {"actions": build_erd_actions(parsed, gap_scale=scale)}
+        return {"actions": route_arrows(build_erd_actions(parsed, gap_scale=scale))}
 
     api = state.get("parsed_api")
     if api and api.groups:
-        return {"actions": build_api_actions(api, gap_scale=scale)}
+        return {"actions": route_arrows(build_api_actions(api, gap_scale=scale))}
 
     llm_plan = state.get("llm_plan")
     if llm_plan and llm_plan.nodes:
-        return {"actions": build_graph_actions(llm_plan, gap_scale=scale)}
+        return {"actions": route_arrows(build_graph_actions(llm_plan, gap_scale=scale))}
 
     # stub (no LLM key / empty input)
     label = (state.get("payload") or state.get("user_message") or "Step")[:24]

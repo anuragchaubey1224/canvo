@@ -196,10 +196,17 @@ def analyze_geometry(actions: list[AgentAction]) -> GeometryReport:
         dst = box_by_id.get(arrow.to_id or "")
         if not src or not dst:
             continue
-        path = elbow_path(src, dst)
+        if arrow.points and len(arrow.points) >= 4:  # routed by our router — judge the real path
+            pts = list(zip(arrow.points[::2], arrow.points[1::2], strict=False))
+            path = list(zip(pts, pts[1:], strict=False))
+        else:
+            path = elbow_path(src, dst)
         if arrow.text:
-            (mx1, my1), (mx2, my2) = path[1]
-            label_points.append((arrow.id, (mx1 + mx2) / 2, (my1 + my2) / 2))
+            if arrow.label_x is not None and arrow.label_y is not None:
+                label_points.append((arrow.id, arrow.label_x, arrow.label_y))
+            else:
+                (mx1, my1), (mx2, my2) = path[len(path) // 2]
+                label_points.append((arrow.id, (mx1 + mx2) / 2, (my1 + my2) / 2))
         endpoint_ids = {src.id, dst.id}
         own_parents = {src.parent_id, dst.parent_id}
         obstacles = [c for c in containers if c.id not in own_parents] + [

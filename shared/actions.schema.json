@@ -20,7 +20,10 @@
         "subtitle": { "type": ["string", "null"], "description": "secondary line under the label" },
         "color": { "type": ["string", "null"], "description": "tldraw color token: blue | violet | orange | green | grey | light-blue | yellow | red | ..." },
         "parent_id": { "type": ["string", "null"], "description": "id of the container this shape belongs to" },
-        "icon": { "type": ["string", "null"], "description": "icon name, OPEN set: server | database | shield | monitor | cloud | key | gateway | queue | ... — unknown icons fall back to the kind's default" }
+        "icon": { "type": ["string", "null"], "description": "icon name, OPEN set: server | database | shield | monitor | cloud | key | gateway | queue | ... — unknown icons fall back to the kind's default" },
+        "points": { "type": ["array", "null"], "items": { "type": "number" }, "description": "routed arrow waypoints, flat [x0,y0,x1,y1,...] in absolute coords; absent → client uses a bound elbow arrow" },
+        "label_x": { "type": ["number", "null"], "description": "label chip anchor x for routed arrows" },
+        "label_y": { "type": ["number", "null"], "description": "label chip anchor y for routed arrows" }
       }
     },
     "CanvasContext": {
