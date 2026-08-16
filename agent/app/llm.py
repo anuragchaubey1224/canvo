@@ -53,12 +53,16 @@ def build_chat_model(cfg: LLMConfig):
     Anthropic uses the native integration; OpenRouter and any other
     OpenAI-compatible gateway share the ChatOpenAI path (just a base_url swap).
     """
+    # Cap output explicitly: our calls return small structured plans/critiques, and an
+    # uncapped request can exceed a metered key's affordability check (OpenRouter 402s
+    # when the model's default max_tokens outruns the key's remaining credit).
     if cfg.provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
         kwargs: dict[str, Any] = {
             "model": cfg.model,
             "api_key": cfg.api_key,
+            "max_tokens": 4096,
             "timeout": 45,
             "max_retries": 2,
         }
@@ -71,6 +75,7 @@ def build_chat_model(cfg: LLMConfig):
         "model": cfg.model,
         "api_key": cfg.api_key,
         "base_url": cfg.base_url or "https://openrouter.ai/api/v1",
+        "max_tokens": 4096,
         "timeout": 45,
         "max_retries": 2,
     }
