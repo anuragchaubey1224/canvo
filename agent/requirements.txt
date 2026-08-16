@@ -9,12 +9,12 @@ pyyaml>=6.0            # parse YAML OpenAPI specs
 sqlalchemy[asyncio]>=2.0
 aiosqlite>=0.20
 
-# Agentic core
-langgraph>=0.2
+# LLM clients — provider abstraction + BYOK (Anthropic direct, or any OpenAI-compatible gateway)
 langchain-anthropic>=0.2
-
-# OpenRouter / any OpenAI-compatible provider (BYOK)
 langchain-openai>=0.2
 
-# Observability (wired in Phase 1; harmless to install now)
-langfuse>=2.0
+# Critic — render the diagram to a PNG for the vision self-correction pass
+pillow>=10.0
+
+# Orchestration is our OWN engine (app/graph/engine.py) — no LangGraph.
+# Observability will be our OWN lightweight tracing — no Langfuse.

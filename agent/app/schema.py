@@ -19,7 +19,7 @@ class Shape(BaseModel):
     """A minimal shape the client knows how to render/apply."""
 
     id: str
-    type: str  # "geo" | "arrow" | "text" | ...
+    type: str  # "geo" | "arrow" | "container" | "text" | ...
     x: float
     y: float
     w: float = 0
@@ -28,6 +28,13 @@ class Shape(BaseModel):
     # For arrows/connectors: bind endpoints to other shapes (e.g. ERD relations).
     from_id: str | None = None
     to_id: str | None = None
+    # Semantic styling (ADR-013: open set — the client's ShapeRegistry maps known kinds
+    # to renderers and falls back to a plain box for anything it doesn't recognize).
+    kind: str | None = None  # "service" | "datastore" | "decision" | "client" | ...
+    subtitle: str | None = None
+    color: str | None = None  # tldraw color token, e.g. "blue" | "violet" | "orange"
+    parent_id: str | None = None  # membership: id of the container this shape sits in
+    icon: str | None = None  # icon name, e.g. "server" | "database" | "shield" (open set)
 
 
 class CanvasContext(BaseModel):
@@ -62,6 +69,8 @@ class AgentInput(BaseModel):
     # `input_kind` optionally forces the route, else the Router auto-detects from message/payload.
     input_kind: str | None = None  # "text" | "sql" | "openapi" | "code"
     payload: str | None = None
+    # Critic: run the vision self-correction pass. None → server default (on when a key exists).
+    enable_vision: bool | None = None
 
 
 class AgentAction(BaseModel):

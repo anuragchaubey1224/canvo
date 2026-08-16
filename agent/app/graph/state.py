@@ -14,15 +14,20 @@ from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema
 
 
-class Plan(TypedDict):
+class Plan(TypedDict, total=False):
     nodes: list[dict]
     edges: list[dict]
+    groups: list[dict]  # only the freeform path sets this (LLM planner)
     notes: str
 
 
-class Critique(TypedDict):
-    has_issues: bool
-    issues: list[str]
+class Critique(TypedDict, total=False):
+    has_issues: bool  # anything worth reporting
+    needs_refine: bool  # should the graph loop back to the Drawer?
+    issues: list[dict]  # [{kind, severity, message, shape_ids}]
+    source: str  # "geometry" | "geometry+vision"
+    summary: str  # one-line human summary
+    gap_scale: float  # spacing scale this critique judged
 
 
 class AgentState(TypedDict, total=False):
@@ -30,6 +35,8 @@ class AgentState(TypedDict, total=False):
     user_message: str
     payload: str | None
     canvas_context: CanvasContext
+    vision_enabled: bool  # run the vision Critic pass (needs an LLM key)
+    llm_override: dict | None  # per-request BYOK/model override (never persisted)
     # set by the Router
     input_kind: str  # "text" | "sql" | "openapi" | "code"
     parsed: ParsedSchema | None
@@ -39,6 +46,7 @@ class AgentState(TypedDict, total=False):
     plan: Plan | None
     actions: list[AgentAction]
     critique: Critique | None
+    layout_params: dict  # {"gap_scale": float} — the Critic tunes this to fix crowding
     # loop control / accounting
     iterations: int
     cost_usd: float

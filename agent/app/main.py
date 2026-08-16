@@ -79,7 +79,13 @@ async def put_snapshot(session_id: str, body: SnapshotIn, db: AsyncSession = Dep
 
 @app.post("/agent/stream")
 async def agent_stream(payload: AgentInput):
-    """Run the graph and stream each canvas action as a Server-Sent Event."""
+    """Run the graph and stream the run as Server-Sent Events.
+
+    Consumes `graph.astream(...)` (our engine yields `(node, update)` per step) so the
+    Critic's self-correction is observable: each `critic` visit emits a `critique` event
+    live (found overlaps → widened spacing → clean), and once the graph settles we stream
+    the FINAL, corrected `AgentAction`s (a single clean draw) followed by a `done` summary.
+    """
 
     async def event_gen():
         state = {
@@ -87,19 +93,60 @@ async def agent_stream(payload: AgentInput):
             "payload": payload.payload,
             "input_kind": payload.input_kind,
             "canvas_context": payload.canvas_context,
+            "vision_enabled": (True if payload.enable_vision is None else payload.enable_vision),
+            # BYOK / per-request model override — used for this request only, never persisted.
+            "llm_override": (payload.llm.model_dump(exclude_none=True) if payload.llm else None),
+            "layout_params": {"gap_scale": 1.0},
             "iterations": 0,
             "cost_usd": 0.0,
         }
 
-        # Phase 0: run the graph to completion, then stream the actions.
-        # TODO: switch to `graph.astream(...)` to emit shapes node-by-node as
-        # the Drawer produces them (true incremental live-draw).
-        result = await graph.ainvoke(state)
+        latest_actions = []
+        passes: list[dict] = []
 
-        for action in result.get("actions", []):
+        async for node, out in graph.astream(state):
+            if not out:
+                continue
+            if "actions" in out:
+                latest_actions = out["actions"]
+            if node == "critic" and out.get("critique"):
+                c = out["critique"]
+                passes.append(c)
+                yield (
+                    "event: critique\ndata: "
+                    + json.dumps(
+                        {
+                            "pass": len(passes),
+                            "has_issues": c.get("has_issues", False),
+                            "needs_refine": c.get("needs_refine", False),
+                            "source": c.get("source"),
+                            "summary": c.get("summary"),
+                            "gap_scale": c.get("gap_scale"),
+                            "issue_count": len(c.get("issues", [])),
+                            "issues": c.get("issues", []),
+                        }
+                    )
+                    + "\n\n"
+                )
+                await asyncio.sleep(0.05)
+
+        # Reveal the FINAL (self-corrected) diagram — one clean draw on the client.
+        for action in latest_actions:
             yield f"data: {action.model_dump_json()}\n\n"
-            await asyncio.sleep(0.15)  # simulate live streaming
+            await asyncio.sleep(0.12)
 
-        yield f"event: done\ndata: {json.dumps({'iterations': result.get('iterations', 0)})}\n\n"
+        refined = len(passes) > 1
+        yield (
+            "event: done\ndata: "
+            + json.dumps(
+                {
+                    "iterations": len(passes),
+                    "refined": refined,
+                    "critic_source": passes[-1].get("source") if passes else None,
+                    "final_clean": bool(passes) and not passes[-1].get("needs_refine", False),
+                }
+            )
+            + "\n\n"
+        )
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

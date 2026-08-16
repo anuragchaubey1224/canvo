@@ -1,7 +1,8 @@
 # Canvo Agent Service
 
-Python + FastAPI + LangGraph service that plans, draws, and self-corrects diagrams for the
-tldraw canvas client. This is the "brain" of Canvo.
+Python + FastAPI service that plans, draws, and self-corrects diagrams for the tldraw canvas
+client. This is the "brain" of Canvo — orchestrated by **our own graph engine**
+(`app/graph/engine.py`), no framework.
 
 ## Layout
 
@@ -16,10 +17,15 @@ agent/
 │   │   ├── parse_sql.py      # SQL DDL → schema (tables, columns, relations)
 │   │   └── parse_openapi.py  # OpenAPI/Swagger (JSON/YAML) → grouped API surface
 │   └── graph/
-│       ├── state.py      # AgentState (LangGraph state)
-│       ├── nodes.py      # router / planner / drawer / critic
-│       ├── layout.py     # deterministic ERD layout (parsed schema → actions)
-│       └── build.py      # StateGraph wiring + bounded refine loop
+│       ├── engine.py        # our own graph engine (nodes, edges, conditional loop, streaming)
+│       ├── state.py         # AgentState (the run state the engine merges into)
+│       ├── nodes.py         # router / planner / drawer / critic
+│       ├── planner_llm.py   # freeform text → typed DiagramPlan (structured output)
+│       ├── layout.py        # deterministic layout (parsed input → actions), gap_scale-tunable
+│       ├── critique.py      # geometry critic — overlaps / dangling arrows (deterministic)
+│       ├── render.py        # rasterize actions → PNG for the vision critic (Pillow)
+│       ├── critic_vision.py # vision critic — an LLM looks at the PNG and judges layout
+│       └── build.py         # graph wiring on engine.py + bounded refine loop
 ├── tests/                # pytest: parser + graph
 ├── requirements.txt · requirements-dev.txt · pytest.ini
 └── .env.example
@@ -51,7 +57,13 @@ Postgres URL for prod. Models/engine/repository live in `app/db/`.
 - ✅ **Freeform text → diagram** — LLM planner (`planner_llm.py`) uses tool-calling / structured
   output to turn a description into a typed node/edge graph, then `build_graph_actions` lays it out.
   Needs an LLM key (`OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`); falls back to a stub without one.
-- 🚧 **Critic** — always "no issues" for now; vision-based self-correction lands in v1 (`PLAN.md` §5).
+- ✅ **Critic — self-correction (two passes).** A deterministic **geometry** pass (`critique.py`)
+  flags overlapping/crowded boxes and dangling arrows; a best-effort **vision** pass
+  (`render.py` → PNG → `critic_vision.py`) has an LLM *look at* the rendered diagram and judge
+  its layout. When a spacing-fixable problem is found the graph loops back to the Drawer with a
+  wider `gap_scale` (bounded, `MAX_ITERATIONS`), and each pass streams a `critique` SSE event so
+  the self-correction is observable. Geometry is covered by `tests/`; vision degrades gracefully
+  without a key.
 
 ## Test
 
