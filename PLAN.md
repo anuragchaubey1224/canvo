@@ -1,404 +1,362 @@
-# Sketchpilot — Conversational Agentic Canvas (Solidified Plan v2)
+# Canvo — Spec-to-Diagram Agentic Canvas (Solidified Plan v3)
 
-> Working name: **Sketchpilot** (placeholder — Canvo / Muse / Draftsman bhi options).
-> One-liner: *"An infinite canvas where you talk (or type) and a LangGraph-orchestrated
-> multi-agent system (Planner → Drawer → Critic) draws, refines, and self-corrects diagrams
-> live — with full tracing, evals, and an MCP interface."*
+> One-liner: *"Turn your specs, docs, and ideas into live, editable diagrams. A multi-tool
+> LangGraph agent (Router → Planner → Drawer → Critic) reasons over real inputs — a PRD, an API
+> spec, a SQL schema, code, or a plain description — draws on an infinite canvas, and self-corrects."*
 
-**Positioning goal:** Yeh project ka #1 kaam = *agentic AI engineer* wali jobs ke liye ek
-undeniable proof-of-work banana. Isliye v2 mein architecture deliberately **hybrid** hai:
-canvas/rendering tldraw handle karega, par **agent ka "brain" ek alag Python + LangGraph
-service** mein hai — taaki recruiter ke saare agentic-infra checkboxes (orchestration,
-observability, evals, guardrails, MCP) explicitly tick ho.
+**North star (3 non-negotiable conditions, set by the user):**
+1. **Proper Python agentic AI** — genuine multi-tool agent, retrieval, memory, self-correction; not a toy.
+2. **Clear advantage for AI-Engineer + Agentic-AI + Python-backend roles** — depth on all three.
+3. **A real product people actually use** — deployed, usable, polished; not a demo script.
+
+Every decision below is judged against these three. **Rule: `web/` (tldraw) stays thin — the
+engineering lives in `agent/` (Python). That's what makes Python the star.**
 
 ---
 
-## 0. v1 → v2 mein kya badla (aur kyun)
+## 0. v2 → v3 refactor (what changed after the "make it job-perfect" review)
 
-| # | v1 (original plan) | v2 (yeh) | Kyun |
+| # | v2 | v3 (this) | Why (which condition) |
 |---|---|---|---|
-| 1 | Orchestration tldraw ke `modes`/`schedule` ke andar (TS, Cloudflare Worker) | **Alag Python FastAPI + LangGraph agent-service** | "Agentic AI engineer" roles Python-stack (LangGraph/LangChain/MCP) maangte hain. Framework ke andar chhupa loop resume par dikhta nahi. |
-| 2 | Eval "nice-to-have" section | **Eval-driven development — core deliverable** | Job listings mein eval/judge-calibration explicitly maanga jaata hai. Yehi senior signal. |
-| 3 | Observability mention nahi | **Langfuse/LangSmith tracing — har node par token/cost/latency** | Interviewer sabse pehle yehi poochhta hai: "how do you debug/measure an agent?" |
-| 4 | MCP nahi tha | **Agent ko MCP server ke roop mein bhi expose karna** | 2026 ka sabse hot signal; prior-art (`tldraw-skill`) ke "agent skill" angle ko proper MCP se beat karta hai. |
-| 5 | Guardrails halke | **Explicit safety layer: cost caps, iteration caps, prompt-injection defense, schema validation** | "Autonomy control" / "safety layer" job requirement. |
-| 6 | Persistence CF KV/Supabase optional | **Supabase (Postgres) — sessions + snapshots + trace links** | Portable, Python-idiomatic, worker-lock-in avoid. |
+| 1 | Agent only draws shapes (narrow tool surface) | **Multi-tool agent that ingests real inputs** (PRD / OpenAPI / SQL / code / text) via parser + **RAG** tools | Cond. 1 — "draw shapes" is too thin for *agentic depth*; real inputs + retrieval = genuine agent |
+| 2 | Voice-first, headline MVP | **Voice → v1 enhancement** | Cond. 2 — voice isn't the core signal for these roles; it steals time from depth |
+| 3 | Production-backend concerns scattered | **"Production backend & DevEx" = first-class pillar** (auth, Postgres+migrations, rate-limit, tests, CI, Docker, deploy) | Cond. 2 — this is the *Python-backend* advantage |
+| 4 | RAG/memory = stretch | **Retrieval of diagram patterns (pgvector) = core** | Cond. 1 — RAG is a top agentic-AI signal |
+| 5 | Scope = "build it all" | **Vertical-slice `v0` deployed early, then deepen** | Cond. 3 — a usable public product beats a perfect unshipped one |
+| 6 | Name "Sketchpilot" | **Canvo** (matches repo `anuragchaubey1224/canvo`) | consistency |
 
-**Kya same raha (verified, still correct):** tldraw agent template real hai, canvas + client-side
-action-apply + visual-context (screenshot + shape data) production-ready deta hai — hum use *reuse*
-karenge, sirf server-side brain replace karenge. Voice-first + conversational + live-streaming +
-self-correction abhi bhi asli differentiators hain (neeche §2 prior-art dekho).
+**Kept:** hybrid architecture (tldraw client + Python/LangGraph brain), Planner→Drawer→Critic,
+Langfuse observability, eval-driven dev, guardrails, MCP, BYOK/provider-abstraction.
 
 ---
 
 ## 1. Product vision & positioning
 
-- **Kya hai:** ek infinite canvas jisme aap bol/type kar ke bologe "draw a login flow for an
-  e-commerce app", aur ek multi-agent system live canvas par shapes draw karta hai — aap beech mein
-  bol kar edit karwate ho ("make the DB node bigger", "add a payment step after cart"). Agent
-  canvas ka current state dekhta hai (screenshot + structured shapes) aur khud galtiyan sudhaarta hai.
-- **Differentiation (resume/product ka core):**
-  1. **Voice-first, conversational, continuous** — competitors mostly ek-shot "text → diagram".
-     Yahan multi-turn back-and-forth; agent har turn canvas state ko re-read karta hai (grounding).
-  2. **Explicit multi-agent graph (Planner → Drawer → Critic)** — LangGraph state machine, conditional
-     edges, bounded refine loop. Critic screenshot dekh ke overlaps/missing steps pakadta hai (vision self-correction).
-  3. **Measured, not vibes** — eval harness + before/after critic table + live tracing dashboard.
-- **Kiske liye:** engineers/PMs jo architecture/flow jaldi sketch karna chahte hain bina mouse ghise.
+- **What it is:** you drop in *real material* — a PRD, an OpenAPI spec, a SQL schema, a code snippet,
+  or just a sentence — and a multi-tool agent turns it into a **live, editable diagram** on an infinite
+  canvas. You keep refining conversationally ("split the payment service", "make this async"); the agent
+  re-reads the canvas each turn and self-corrects layout/overlaps.
+- **Why it's more than "text → diagram":** the agent *reasons over structured inputs* (parses a schema
+  into tables+relations, an OpenAPI doc into flows), *retrieves* proven diagram patterns (RAG), and
+  *critiques its own output* with vision. That's a real agent, not a prompt template.
+- **Who it's for:** engineers/architects/PMs who want an accurate first-draft diagram from something they
+  already have (a spec, a schema, a repo), editable live — instead of dragging boxes for an hour.
+
+**Differentiators (the moat):**
+1. **Real-input grounding** — spec/schema/code → diagram, not just freeform text.
+2. **Multi-tool observable agent graph** — Router → Planner → Drawer → Critic, with RAG + vision self-correction, fully traced.
+3. **Eval-driven & production-grade** — measured accuracy (before/after critic), deployed, auth'd, tested.
 
 ---
 
-## 2. Prior-art & competitive landscape (jaan lo, phir differentiate karo)
+## 2. Prior-art & competitive landscape
 
-Research se ye mila — inko README/demo mein *acknowledge* karo aur clearly batao aap kya extra dete ho:
-
-| Project | Kya karta hai | Kya NAHI karta (aapka gap = differentiator) |
+| Project | Does | Doesn't (our gap = edge) |
 |---|---|---|
-| **`Agents365-ai/tldraw-skill`** (117★, MIT) | NL → `.tldr` diagrams, 6 presets, vision self-check (≤2 rounds), semantic palette | Sirf text-prompt **skill** hai — **no voice, no live-streaming canvas, no hosted conversational app, no eval/observability infra** |
-| **tldraw `agent-template`** (official) | Canvas + agent framework (modes/actions/parts), TS + CF Worker | Single-agent by default; **no explicit multi-agent graph, no Python/LangGraph, no evals/tracing, no voice** |
-| **Excalidraw / Eraser AI** | Text → diagram, polished | One-shot generation, **no conversational refine loop, no self-correcting critic, closed** |
+| `Agents365-ai/tldraw-skill` (117★) | NL → `.tldr`, 6 presets, vision self-check | text-only skill; **no real-input parsing, no RAG, no hosted app, no infra** |
+| tldraw `agent-template` | canvas + single-agent framework (TS/CF) | **no multi-tool graph, no Python/LangGraph, no evals/tracing/RAG** |
+| Excalidraw / Eraser AI | text → diagram, polished | one-shot; **no spec-ingestion, no self-correcting critic, closed** |
 
-> **Takeaway:** Idea validated hai (log ise banate hain), par *aapka slice bacha hua hai* —
-> **voice + continuous conversation + explicit observable multi-agent graph + eval-driven + MCP**.
-> Yeh combination kisi single competitor ke paas nahi. `tldraw-skill` ko duplicate mat karna
-> (presets/vision-check woh already kar chuka); usse aage jao (live app + agentic infra).
+> **Takeaway:** the *spec/doc/code → diagram* angle + observable multi-tool agent + evals is unoccupied.
+> Don't duplicate `tldraw-skill` (presets/vision it has); go past it (real inputs + RAG + product + infra).
 
 ---
 
-## 3. Job-signal map — har feature ↔ 2026 "agentic AI engineer" requirement
+## 3. Job-signal map — feature ↔ 2026 requirement (all three role buckets)
 
-Yeh table = plan ka "why". Har cheez ek hiring checkbox par map hoti hai. Interview mein yahi bolna hai.
-
-| Job requirement (2026 listings se) | Project mein kahan | Resume/interview line |
+| Requirement | In Canvo | Role bucket |
 |---|---|---|
-| Multi-agent orchestration | LangGraph Planner→Drawer→Critic graph (§5) | "Designed a stateful multi-agent graph with bounded self-correction loops" |
-| LLM tool-calling / structured outputs | Pydantic action schemas → Claude tool-use (§4, §5) | "Typed tool schemas; model output validated + sanitized before applying" |
-| Observability / tracing | Langfuse (self-host) per-node token/cost/latency (§6) | "Full trace per run; debugged latency/cost from spans" |
-| Evaluation / LLM-as-judge / judge calibration | Eval harness, 20 prompts, before/after critic (§6, §13) | "Eval-driven: critic loop lifted diagram-accuracy from X→Y%, measured" |
-| Guardrails / autonomy control / prompt-injection defense | Safety layer (§6) | "Cost/iteration caps, injection-hardened prompts, schema-validated actions" |
-| Memory / state management | Session + canvas + conversation memory (§7 data model) | "Stateful sessions; agent re-grounds on current canvas each turn" |
-| MCP (Model Context Protocol) | Agent as MCP server (§6, v1) | "Exposed the diagramming agent over MCP for Claude Desktop/Cursor" |
-| Voice agents | Web Speech → Whisper (Python) → TTS (§8) | "Voice-first multimodal interface with server-side transcription" |
-| Latency/cost optimization | Prompt caching, small model for planner, streaming (§9) | "Prompt caching + model-tiering cut cost/latency ~N%" |
-| Multimodal / vision grounding | Screenshot + shape data to Critic (§5) | "Vision-grounded critic caught layout errors text-only agents miss" |
+| Multi-agent orchestration | LangGraph Router→Planner→Drawer→Critic (§5) | Agentic |
+| Tool use / API orchestration | parser tools (OpenAPI/SQL/code) + canvas actions (§5) | Agentic / AI-Eng |
+| **RAG / retrieval / vector DB** | retrieve diagram patterns via pgvector (§6b) | AI-Eng / Agentic |
+| Structured outputs / tool-calling | Pydantic schemas → Claude tool-use (§4) | AI-Eng |
+| Multimodal / vision grounding | screenshot + shapes → Critic (§5) | AI-Eng |
+| Observability / tracing | Langfuse per-node (§6a) | Agentic / AI-Eng |
+| Evaluation / LLM-as-judge | eval harness, before/after critic (§6c, §13) | AI-Eng |
+| Guardrails / autonomy control / injection defense | safety layer (§6d) | Agentic |
+| Memory / state | session + conversation + semantic (§6e) | Agentic |
+| MCP | agent as MCP server (§6f) | Agentic |
+| **Async API design + streaming** | FastAPI async, SSE→WS (§7) | **Python backend** |
+| **Auth + rate-limit + quotas** | Supabase Auth/JWT, per-user quota (§7) | **Python backend** |
+| **DB + migrations** | Postgres + pgvector + Alembic (§7, §8) | **Python backend** |
+| **Testing + CI/CD + Docker + deploy** | pytest, ruff/mypy, GH Actions, Docker, Fly/Railway (§7) | **Python backend** |
+| Cost/latency optimization | prompt caching, model-tiering, streaming (§9) | AI-Eng |
+| Provider abstraction / BYOK | Anthropic/OpenRouter/OpenAI-compatible (§6g) | AI-Eng / backend |
 
-> Agar aap in 10 mein se 7-8 genuinely build karke *numbers ke saath* dikha do — yeh project
-> ek mid/senior agentic-AI role ke liye standout portfolio piece ban jaata hai.
+> Genuinely ship ~12+ of these *with numbers + a live URL* → a standout piece for all three buckets.
 
 ---
 
-## 4. Architecture (v2 — hybrid)
-
-**Cut point:** tldraw ka **client** reuse karo (canvas, action-apply, visual-context gathering,
-streaming render). tldraw ke **server (CF Worker)** ko drop karke **Python FastAPI + LangGraph**
-se replace karo. Contract = ek chhota shared schema (actions + canvas-context), Zod client-side /
-Pydantic server-side — dono ek hi spec se mirror.
+## 4. Architecture (v3 — hybrid, widened inputs)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Browser — tldraw client (React + TS + Vite)   [template se reuse] │
-│  ┌──────────┐  ┌────────────────┐  ┌──────────────────────────┐    │
-│  │ Voice/   │  │ Chat panel     │  │ tldraw canvas            │    │
-│  │ type in  │─▶│ transcript +   │  │ (client applies actions, │    │
-│  │          │  │ agent status   │  │  streams shapes live)    │    │
-│  └──────────┘  └───────┬────────┘  └────────────▲─────────────┘    │
-│    AgentInput = {message, canvasContext:        │ AgentAction[]    │
-│      focusedShapes, blurryShapes, screenshot}   │ (create/update/  │
-└─────────────────────────┬───────────────────────┴─delete/…)───────┘
-                          │  POST /agent/stream  (SSE; WS in v1)
-                          ▼
+│  web/  — tldraw client (React/TS)   [thin; template reuse]         │
+│   input tray (paste PRD / OpenAPI / SQL / code / text; file drop)  │
+│   chat panel · tldraw canvas (applies streamed actions live)       │
+└───────────────┬───────────────────────────────▲──────────────────┘
+    AgentInput = {message, input_kind?, payload,  │ AgentAction[] (SSE→WS)
+      canvas_context:{focused,blurry,screenshot}} │
+                ▼                                  │
 ┌──────────────────────────────────────────────────────────────────┐
-│  Python agent-service  (FastAPI)                                   │
+│  agent/  — Python FastAPI service  (async)   [the engineering]     │
 │                                                                    │
-│   LangGraph state graph:                                           │
-│     ┌─────────┐   ┌────────┐   ┌────────┐                          │
-│     │ PLANNER │──▶│ DRAWER │──▶│ CRITIC │──┐                       │
-│     └─────────┘   └────────┘   └────┬───┘  │ conditional edge      │
-│         ▲                           │       │ (issues? & iters<N)   │
-│         └─────────── refine ────────┴───────┘                       │
+│  LangGraph:  ROUTER ─▶ PLANNER ─▶ DRAWER ─▶ CRITIC ─┐              │
+│                 │         ▲                          │ refine loop  │
+│   tools:        │         └────────── (issues,iter<N)┘  (bounded)  │
+│    parse_openapi / parse_sql / parse_code / retrieve_patterns(RAG) │
+│    + canvas actions (create/update/delete/connect)                 │
 │                                                                    │
-│   • Claude tool-calling (Pydantic action schemas)                  │
-│   • Prompt caching, model-tiering (Haiku planner / Sonnet drawer)  │
-│   • Langfuse tracing on every node                                 │
-│   • Guardrails: cost/iter caps, injection defense, schema validate │
-│                                                                    │
-│   MCP server (same graph exposed as an MCP tool) ────────────────▶ │  Claude Desktop /
-└─────────────────────────┬──────────────────────────────────────────┘  Cursor (v1)
-                          │
-                          ▼
-          Supabase (Postgres): sessions, snapshots, chat_turns, trace links
+│  Claude tool-calling · prompt caching · model-tiering              │
+│  Langfuse tracing · guardrails · Auth/JWT · rate-limit · quotas    │
+│  MCP server (same graph as a tool) ──────────────────────────────▶ │  Claude Desktop / Cursor
+└───────────────┬───────────────────────────────────────────────────┘
+                ▼
+   Supabase Postgres (+ pgvector): users, sessions, snapshots,
+                                   chat_turns, runs, pattern_embeddings
 ```
 
-**Client↔server contract (the one thing to get right early):**
-- `AgentInput` (client → server): `{ message, canvasContext: { focusedShapes[], blurryShapes[], screenshot(base64) }, sessionId }`
-- `AgentAction[]` (server → client, streamed): create/update/delete/align/connect shapes — same shape
-  ops the tldraw client already knows how to apply.
-- **Define schema once** (JSON Schema or a `/shared/schema.json`), generate/mirror to Zod (client)
-  and Pydantic (server). Add a contract test so drift breaks CI, not the demo.
-
-**Transport:** SSE for MVP (simple, unidirectional stream of actions). Upgrade to **WebSocket** in
-v1 for interrupt/barge-in during voice + bidirectional status.
-
-**Why not keep the CF worker as a proxy?** Extra hop + second backend + TS lock-in, zero job-signal
-upside. Client → Python directly (CORS) is simpler and more Python-resume-friendly.
+**Client↔server contract (get right early):** `AgentInput` → streamed `AgentAction[]`. One schema
+spec (`shared/actions.schema.json`) → Zod (client) + Pydantic (server), contract-tested. Transport:
+**SSE (v0) → WebSocket (v1)**.
 
 ---
 
-## 5. The multi-agent graph (the differentiator, done idiomatically)
+## 5. The agent graph (multi-tool, the depth)
 
-Implement as a **LangGraph `StateGraph`**. State object carries the whole run.
-
-```python
-class AgentState(TypedDict):
-    user_message: str
-    canvas_context: CanvasContext        # focused + blurry shapes + screenshot
-    plan: Plan | None                    # structured nodes/edges/layout hint
-    actions: list[AgentAction]           # what Drawer produced
-    critique: Critique | None            # issues found by Critic
-    iterations: int
-    cost_usd: float
-```
+LangGraph `StateGraph`. State carries the run (input, parsed structure, plan, actions, critique,
+iterations, cost).
 
 **Nodes:**
-1. **Planner** — `intent + canvas_context → Plan(JSON)`. Canvas ko touch nahi karta. Cheap model
-   (Haiku 4.5) chalega. Output: nodes, edges, layout hint.
-2. **Drawer** — `Plan → AgentAction[]` via Claude tool-calling (Pydantic schemas). Actions client
-   ko stream hote hain (live draw). Sonnet 5 (best tool-calling).
-3. **Critic** — `screenshot + shape_data → Critique`. "Intent match? overlaps? missing steps?"
-   Vision-grounded. Agar issues → correction actions; warna done. Sonnet 5 (ya hardest cases pe Opus).
+1. **Router** — classify input (`text | prd | openapi | sql | code`) + pick diagram type + which parser tool.
+2. **Planner** — parsed structured data **+ retrieved patterns (RAG)** → `Plan` (nodes/edges/layout hint). Cheap model (Haiku 4.5).
+3. **Drawer** — `Plan → AgentAction[]` via typed tool-calling; streams to canvas. Sonnet 5.
+4. **Critic** — screenshot + shapes → `Critique` (overlaps? missing? intent-match?). Vision. Sonnet 5 (Opus 5 for hard cases).
 
-**Edges / loop guard:**
-- `Planner → Drawer → Critic`.
-- Conditional edge from Critic: `if critique.has_issues and state.iterations < N and state.cost_usd < CAP → back to Drawer (or Planner for big misses); else END`.
-- **N = 2–3** (config). Cost + latency guard. Har iteration Langfuse mein ek span.
+**Tools available to the graph:**
+- `parse_openapi(spec) → endpoints/flows`
+- `parse_sql_schema(ddl) → tables/relations` (→ ERD)
+- `parse_code(snippet) → modules/deps` (start with pasted code; repo-crawl = stretch)
+- `retrieve_patterns(query) → few-shot diagram exemplars` (pgvector RAG grounding)
+- canvas actions: `create / update / delete / connect shape`
 
-**Model IDs (current, 2026):** `claude-haiku-4-5` (planner), `claude-sonnet-5` (drawer/critic),
-`claude-opus-5` sirf hardest critique ke liye (optional). Prompt caching on for the static system/schema parts.
+**Loop guard:** Critic → conditional edge → `refine` (back to Drawer, or Planner for structural misses)
+if `has_issues and iterations < N(=3) and cost < CAP`, else `END`. Every node = one Langfuse span.
+
+**Model IDs (2026):** `claude-haiku-4-5` (router/planner), `claude-sonnet-5` (drawer/critic),
+`claude-opus-5` (hard critique, optional). Prompt caching on static system/schema parts.
 
 ---
 
-## 6. Agentic-infra layer (yeh section = job ka asli maal)
+## 6. Agentic-infra layer (the senior signal)
 
-Yeh woh cheezein hain jo `tldraw-skill` aur zyadatar hobby projects mein NAHI hoti. Isi se aap alag dikhte ho.
+### 6a. Observability — **Langfuse** (self-host, free) [+ LangSmith optional]
+Per-node span: prompt, model, tokens, cost, latency, output. Full run trace incl. iterations. README
+mein trace screenshot = instant credibility.
 
-### 6a. Observability — **Langfuse** (self-host, free, open-source) [+ LangSmith optional]
-- Har LangGraph node → ek span. Capture: prompt, model, tokens, cost, latency, output.
-- Full run trace: Planner→Drawer→Critic→refine, iteration count visible.
-- README mein trace screenshot daalo — instant credibility. Interview mein isse live debug dikha do.
+### 6b. Retrieval / RAG — **pgvector**
+Vector store of diagram patterns / exemplars (and, later, the user's own past diagrams). Planner
+retrieves relevant patterns to ground layout + few-shot. Embeddings via a small model. This is a
+core AI-Eng signal, not a stretch.
 
-### 6b. Evaluation harness (see §13 for detail) — **core deliverable, not optional**
-- 20 fixed prompts, LLM-as-judge for "intent match", structural metrics, before/after critic table.
+### 6c. Evaluation harness (core deliverable) — see §13
+20 fixed prompts, LLM-as-judge (calibrated), structural metrics, **before/after-critic** accuracy table.
 
-### 6c. Guardrails / safety layer
-- **Cost cap** per run (`cost_usd` in state; hard stop).
-- **Iteration cap** (N≤3) — runaway loop se bachao.
-- **Prompt-injection defense** — user text ko system instructions se strictly separate; user canvas
-  content agent ke tool-permissions ko override na kar sake. Ek chhota red-team test set rakho.
-- **Schema validation + sanitize** — model output ko apply karne se pehle Pydantic validate +
-  `sanitizeAction` (invalid shape IDs, out-of-bounds coords drop/clamp).
-
-### 6d. MCP server (v1 — high signal, low effort)
-- Same LangGraph graph ko ek **MCP tool** (`draw_diagram`) ke roop mein expose karo (FastMCP/Python SDK).
-- Result: Claude Desktop / Cursor se bhi diagram banwa sako. "I shipped an MCP server" = strong 2026 line.
+### 6d. Guardrails / safety
+Cost cap per run · iteration cap (N≤3) · **prompt-injection defense** (user/spec content can't override
+system or tool perms; red-team set) · schema-validate + sanitize actions before applying.
 
 ### 6e. Memory / state
-- **Session memory**: canvas snapshot (Supabase) — reload par wapas.
-- **Conversation memory**: last-N turns to the graph (context window managed).
-- **(Stretch) semantic memory**: past diagram patterns embed karke retrieve — RAG signal (vector DB).
+Session memory (canvas snapshot, Supabase) · conversation memory (last-N turns) · **semantic memory**
+(past diagrams embedded → retrievable; ties into §6b).
 
-### 6f. Provider abstraction + BYOK (bring your own key)
-- **Ek provider layer** (`agent/app/llm.py`): Anthropic direct, **OpenRouter** (one key → many
-  models), ya koi bhi **OpenAI-compatible** gateway. Model/provider swap = base_url + key change.
-- **BYOK**: user apni khud ki key + provider **per-request** de sake (`AgentInput.llm`) — apne quota
-  par chale, aapka bill nahi. Absent ho to server env default.
-- **Security (must):** user-supplied key sirf us request ke liye use ho — **kabhi log/persist na ho**,
-  hamesha HTTPS. (Ek acchi resume line: "multi-provider BYOK with per-request key isolation".)
+### 6f. MCP server
+Expose the graph as an MCP tool (`draw_diagram`) via FastMCP/Python SDK → usable from Claude Desktop/Cursor.
+
+### 6g. Provider abstraction + BYOK
+`agent/app/llm.py`: Anthropic / OpenRouter / any OpenAI-compatible. Per-request BYOK (`AgentInput.llm`);
+user keys used per-request, **never logged/persisted**, HTTPS only.
 
 ---
 
-## 7. Data model (Supabase / Postgres)
+## 7. Production backend & DevEx (first-class pillar — the Python-backend advantage)
 
-- `sessions` — id, user, created_at, title
-- `snapshots` — session_id, tldraw store JSON, updated_at (autosave, debounced)
-- `chat_turns` — session_id, role (user/planner/drawer/critic), content, tokens, cost, latency, timestamp
-- `runs` — session_id, langfuse_trace_id, iterations, total_cost, verdict (for eval/analytics)
-- (auth optional for MVP; Supabase Auth for v1 if publicly hosted)
+This is what a backend interviewer probes. Treat it as core, not polish.
 
----
-
-## 8. Voice layer (Python fits perfectly)
-
-- **MVP:** browser **Web Speech API** (`SpeechRecognition`) — free, instant. Push-to-talk; interim +
-  final transcript chat panel mein. Type karna hamesha available (voice optional).
-- **v1:** **Whisper** server-side (Python `faster-whisper` / OpenAI Whisper API) — accuracy + Hindi/
-  Indian-English accents. (Python service mein already ho — natural fit.)
-- **Stretch:** TTS reply ("Added the payment node") — full conversational feel. WebSocket + barge-in.
+- **API:** FastAPI, fully **async**; `pydantic-settings` config; **structured logging** (structlog);
+  consistent error model; OpenAPI docs. Streaming: **SSE (v0) → WebSocket (v1)**.
+- **Auth:** Supabase Auth (verify JWT) — or signed API keys for the earliest slice.
+- **Data:** Supabase **Postgres + pgvector**; **Alembic migrations**; a thin repository layer (no ORM-in-routes).
+- **Limits:** per-user **rate-limiting + quotas** (crucial with LLM cost + BYOK).
+- **Testing:** **pytest** — unit (parsers, guardrails, graph nodes with mocked LLM), integration
+  (API + DB), contract test (Zod↔Pydantic). Coverage tracked. Eval suite runnable in CI (smoke subset).
+- **Quality:** **ruff** + **mypy** + pre-commit.
+- **CI/CD:** **GitHub Actions** (lint → typecheck → test). **Docker** + `docker-compose` (agent + postgres).
+  **Deploy** agent to Fly.io/Railway/Render; DB on Supabase; web on Vercel/Netlify.
+- **Observability in prod:** Langfuse + structured logs (+ OpenTelemetry later).
 
 ---
 
-## 9. Tech stack (final v2 decisions)
+## 8. Data model (Supabase / Postgres + pgvector)
+
+- `users` — (Supabase Auth) id, email, plan/quota
+- `sessions` — id, user_id, title, created_at
+- `snapshots` — session_id, tldraw store JSON, updated_at (debounced autosave)
+- `chat_turns` — session_id, role (user/router/planner/drawer/critic), content, tokens, cost, latency, ts
+- `runs` — session_id, langfuse_trace_id, input_kind, iterations, total_cost, verdict (analytics/eval)
+- `pattern_embeddings` — id, kind, label, embedding (vector), payload (RAG store)
+
+---
+
+## 9. Tech stack (final v3)
 
 | Layer | Choice | Why |
 |---|---|---|
-| Canvas / frontend | **tldraw SDK** (agent-template client, fork) — React + TS + Vite | Production canvas + action-apply + visual context; reuse, don't rebuild |
-| **Agent service** | **Python + FastAPI + LangGraph** | Job-target stack; explicit observable orchestration |
-| LLM | **Claude** — Sonnet 5 (drawer/critic), Haiku 4.5 (planner), Opus 5 (hard critique) | Best tool-calling + vision; model-tiering for cost |
-| Provider layer | Anthropic direct · **OpenRouter** · OpenAI-compatible (+ **BYOK**) | Model flexibility; users can bring their own key/quota |
-| Tool schemas | **Pydantic** (server) ↔ **Zod** (client), one shared spec | Typed, validated, contract-tested |
-| Observability | **Langfuse** (self-host) [+ LangSmith optional] | Per-node tracing = interview gold |
-| Evals | LangGraph run harness + LLM-as-judge (custom; RAGAS-style ideas) | Before/after numbers |
-| Voice | Web Speech → Whisper (Python) → TTS | Free MVP → accurate v1 |
-| Persistence | **Supabase (Postgres)** | Sessions + snapshots + run analytics |
-| Transport | SSE (MVP) → WebSocket (v1) | Simple first, bidirectional later |
-| MCP | FastMCP / Python MCP SDK | Expose agent as a tool |
-| Deploy | Frontend: Vercel/Netlify · Agent: Fly.io/Railway/Render (Python) · DB: Supabase | Standard, portable |
+| Canvas / frontend | **tldraw** (agent-template client, thin fork) React+TS+Vite | reuse canvas + action-apply + visual context |
+| **Agent service** | **Python · FastAPI (async) · LangGraph** | job-target stack; observable multi-tool orchestration |
+| LLM | **Claude** — Sonnet 5 (drawer/critic), Haiku 4.5 (router/planner), Opus 5 (hard critique) | best tool-calling + vision; model-tiering |
+| Provider layer | Anthropic · **OpenRouter** · OpenAI-compatible (+ **BYOK**) | flexibility; users bring own key/quota |
+| Schemas | **Pydantic** ↔ **Zod**, one shared spec, contract-tested | typed, validated, drift-guarded |
+| Retrieval | **pgvector** + embeddings | RAG grounding of diagram patterns |
+| Observability | **Langfuse** (self-host) [+ LangSmith] | per-node tracing |
+| Evals | LangGraph runner + LLM-as-judge | before/after numbers |
+| Persistence | **Supabase (Postgres + pgvector)** + **Alembic** | data + migrations |
+| Backend quality | pytest · ruff · mypy · pre-commit | Python-backend signal |
+| CI/CD | **GitHub Actions** · **Docker** · Fly.io/Railway | shippable + reproducible |
+| Transport | SSE (v0) → WebSocket (v1) | simple first, bidirectional later |
+| MCP | FastMCP / Python MCP SDK | agent-as-tool |
+| Voice (v1) | Web Speech → Whisper (Python) → TTS | multimodal bonus, later |
 
 ---
 
 ## 10. Repo structure (monorepo)
 
 ```
-sketchpilot/
-├── web/                 # tldraw client (forked from agent-template client)
-│   ├── src/canvas/      #   action-apply + visual-context (reuse)
-│   ├── src/chat/        #   chat panel, voice input
-│   └── src/transport/   #   SSE/WS client to Python service
-├── agent/               # Python FastAPI + LangGraph service
-│   ├── graph/           #   nodes: planner.py, drawer.py, critic.py; graph.py
-│   ├── schema/          #   Pydantic action + context models
-│   ├── guardrails/      #   caps, injection defense, sanitize
-│   ├── mcp/             #   MCP server exposing the graph
-│   ├── evals/           #   dataset + judge + runner + report
-│   └── obs/             #   Langfuse setup
+canvo/
+├── web/                 # tldraw client (thin; forked in Phase-0 spike)
+├── agent/               # Python FastAPI + LangGraph service  ← the engineering
+│   ├── app/
+│   │   ├── main.py           # FastAPI: /health, /agent/stream (SSE)
+│   │   ├── schema.py         # Pydantic contract + BYOK
+│   │   ├── llm.py            # provider abstraction (Anthropic/OpenRouter/…)
+│   │   ├── guardrails.py     # caps, injection defense, sanitize
+│   │   ├── graph/            # router, planner, drawer, critic + build
+│   │   ├── tools/            # parse_openapi, parse_sql, parse_code, retrieve_patterns
+│   │   ├── rag/              # embeddings + pgvector store
+│   │   ├── db/               # models, repositories, Alembic migrations
+│   │   ├── auth/             # JWT verify, quotas, rate-limit
+│   │   ├── obs/              # Langfuse setup, structured logging
+│   │   ├── mcp/              # MCP server
+│   │   └── evals/            # dataset + judge + runner + report
+│   ├── tests/                # unit + integration + contract
+│   ├── Dockerfile · docker-compose.yml · pyproject.toml
 ├── shared/              # one schema spec → Zod + Pydantic mirror + contract test
-└── README.md            # architecture, trace screenshots, eval table, demo GIF
+├── .github/workflows/   # CI: lint → typecheck → test
+└── README.md            # architecture, trace + eval screenshots, demo GIF, live URL
 ```
 
 ---
 
-## 11. Feature scope (phased)
+## 11. Scope (phased around a shippable v0)
 
-### Phase 0 — Spike (de-risk the integration FIRST)
-- [ ] Fork tldraw `agent-template`, run **as-is** (TS worker), type→diagram working with Claude.
-- [ ] Client↔server contract samjho: `AgentInput` + `AgentAction[]` exactly kya bhejte/aate hain.
-- [ ] Monorepo set up (`web/` + `agent/` + `shared/`).
+### Phase 0 — Spike (de-risk integration first) — *partly done*
+- [x] Monorepo scaffold; runnable FastAPI + LangGraph stub; contract file; git repo pushed.
+- [ ] Fork tldraw `agent-template` into `web/`, run **as-is**, learn the client↔server contract.
 
-### MVP ("done" ka definition)
-- [ ] Python FastAPI service khada; **ek** action path (create shapes) client se Python ko wire, SSE stream.
-- [ ] LangGraph **Planner → Drawer** graph working (canvas actual mein banta hai).
-- [ ] Agent canvas-state aware (edit existing, not just create fresh).
-- [ ] Voice input (Web Speech) → same pipeline.
-- [ ] Session persist (Supabase; reload par diagram wapas).
-- [ ] Langfuse tracing on every node (basic).
+### v0 — Usable & DEPLOYED vertical slice ("done" = a stranger can use it at a URL)
+- [ ] One real input path end-to-end: **text/description OR SQL schema → Planner→Drawer → live canvas** (Python SSE).
+- [ ] `parse_sql_schema` tool (first real "tool"); Router picks it.
+- [ ] Session persist (Supabase); reload restores canvas.
+- [ ] Langfuse tracing on every node.
+- [ ] Dockerized; **deployed** (agent + web + DB); basic pytest + GitHub Actions CI green.
 
-### v1 (differentiation — yeh sell karta hai)
-- [ ] **Critic node + refine loop** (vision self-correction, bounded N).
-- [ ] Guardrails: cost/iter caps, injection defense, schema validate/sanitize.
-- [ ] **Eval harness** + before/after-critic accuracy table (§13).
-- [ ] Whisper voice upgrade; WebSocket transport.
-- [ ] Diagram presets: flowchart, sequence, ER, architecture, mind-map.
-- [ ] **MCP server** (`draw_diagram` tool).
-- [ ] **BYOK**: provider abstraction (Anthropic / OpenRouter / OpenAI-compatible) + per-request user key.
-- [ ] Export (PNG/SVG) + share link.
+### v1 — Depth & polish (the resume sell)
+- [ ] **Critic node + vision refine loop** (bounded).
+- [ ] More inputs: **OpenAPI → flows**, **pasted code → modules**.
+- [ ] **RAG**: `retrieve_patterns` over pgvector; grounds Planner.
+- [ ] **Auth + quotas + rate-limit**; guardrails (caps, injection, sanitize).
+- [ ] **Eval harness** + before/after-critic accuracy table.
+- [ ] **MCP server**; presets; export (PNG/SVG) + share link.
+- [ ] Test coverage solid; mypy/ruff clean; README with traces + numbers + demo.
+- [ ] **Voice** (Web Speech → Whisper); WebSocket transport.
 
-### Stretch (bonus resume points)
-- [ ] Real-time multiplayer (tldraw sync).
-- [ ] TTS reply + barge-in (full voice conversation).
-- [ ] Semantic memory of past diagrams (vector DB → RAG signal).
-- [ ] "Explain this diagram" reverse mode (canvas → text summary).
-- [ ] A2A: second agent (e.g., a "reviewer" service) via agent-to-agent protocol.
+### v2 — Stretch (bonus)
+- [ ] Repo-crawl → architecture diagram · multiplayer (tldraw sync) · TTS + barge-in · A2A second agent.
 
 ---
 
-## 12. Roadmap & timeline (solo, part-time — hybrid adds ~1 wk vs v1)
+## 12. Roadmap (solo, part-time)
 
 | Week | Goal |
 |---|---|
-| 1 | **Phase 0 spike.** Template run as-is, contract samjho, monorepo. |
-| 2 | Python FastAPI service; port one action path; client→Python SSE for "create shapes". **(Riskiest — integration milestone.)** |
-| 3 | LangGraph Planner→Drawer; canvas-state awareness; Supabase persist; Langfuse tracing. **MVP done.** |
-| 4 | Critic node + refine loop; guardrails (caps, injection, sanitize); streaming polish. |
-| 5 | Voice (Web Speech→Whisper), presets, export/share, WebSocket. |
-| 6 | **Eval harness + before/after table**; MCP server; README + trace/eval screenshots + demo video; deploy. **v1 / portfolio-ready.** |
-| 7+ | Stretch: multiplayer, TTS, semantic memory, A2A. |
+| 1 | Phase-0 spike (tldraw template as-is, learn contract) + backend skeleton hardening (settings, logging, structure, DB conn). |
+| 2 | **Vertical slice:** text/SQL → Planner→Drawer → canvas via Python SSE; Supabase persist; Langfuse. |
+| 3 | Dockerize + CI + **deploy**. **v0 live & usable at a URL.** |
+| 4 | Critic + refine loop; add OpenAPI/code inputs; `retrieve_patterns` (pgvector RAG). |
+| 5 | Auth + quotas + rate-limit; **eval harness** + before/after table; tests to solid coverage. |
+| 6 | MCP server; presets; export/share; README (traces + numbers + demo). **v1 done / portfolio-ready.** |
+| 7+ | Voice, repo→diagram, multiplayer. |
 
-> Full-time ho to ~3-4 hafte mein compress. **Rule:** Phase 0/integration ko rush mat karna —
-> yahi poore project ka technical risk hai. Baaki sab uske upar predictable hai.
+> Full-time → compress to ~3.5–4 weeks. **Guard:** don't skip the v0 deploy (W3) to chase depth —
+> a live URL is half the hiring signal. Integration (W1–2) is the real technical risk; don't rush it.
 
 ---
 
-## 13. Eval harness (senior signal — build this properly)
+## 13. Eval harness (build properly)
 
-- **Dataset:** 20 fixed prompts ("draw a 3-tier web architecture", "sequence diagram for OAuth login",
-  "ER diagram for a blog", "state machine for an order", …). Store as `agent/evals/dataset.jsonl`.
-- **Metrics per run:**
-  - (a) shapes created vs expected (structural),
-  - (b) **LLM-as-judge**: "does this diagram match the intent?" (0–1, calibrate judge on a few by hand),
-  - (c) did Critic catch/fix a real error (labelled),
-  - (d) iterations to converge,
-  - (e) latency,
-  - (f) cost per diagram.
-- **Headline table — WITHOUT critic loop vs WITH critic loop:** accuracy X% → Y%. Yeh number README +
-  resume + interview teeno mein use hota hai.
-- **Judge calibration note:** ~5 examples hand-label karke judge se agreement check karo — "how do you
-  trust your eval?" ka answer ready rahe.
+- **Dataset:** 20 prompts across input kinds (description, SQL DDL, OpenAPI) → `agent/app/evals/dataset.jsonl`.
+- **Metrics:** (a) structural (shapes/edges vs expected), (b) **LLM-as-judge** intent-match 0–1 (hand-calibrate on ~5),
+  (c) Critic caught/fixed a real error, (d) iterations to converge, (e) latency, (f) cost.
+- **Headline:** WITHOUT vs WITH critic loop → accuracy **X% → Y%**. Use in README + resume + interview.
+- **CI:** a small smoke subset runs in GitHub Actions.
 
 ---
 
 ## 14. Resume framing + interview prep
 
-**Resume bullet (ready-to-use):**
-> **Sketchpilot — Conversational Agentic Diagramming Canvas**
-> Built a voice-driven infinite canvas where a **LangGraph** multi-agent system (Planner → Drawer →
-> Critic) powered by **Claude** generates and **self-corrects** diagrams in real time. Python/FastAPI
-> agent-service with **typed tool-calling** (Pydantic), **vision-grounded critique**, **prompt-injection
-> guardrails**, and an **MCP** interface. Instrumented every node with **Langfuse** tracing and built an
-> **eval harness** (LLM-as-judge) showing the self-correction loop lifted diagram accuracy **X%→Y%**.
-> Stack: Python, FastAPI, LangGraph, Claude, tldraw/React-TS, Whisper, Supabase, Langfuse.
+**Resume bullet:**
+> **Canvo — Spec-to-Diagram Agentic Canvas**
+> Built a **multi-tool LangGraph agent** (Router→Planner→Drawer→Critic) that turns specs (OpenAPI, SQL
+> schemas, code, or plain text) into live, editable diagrams and **self-corrects** with **vision**.
+> Python/FastAPI (async) backend: **RAG** over pgvector, typed **tool-calling** (Pydantic), **prompt-injection
+> guardrails**, **BYOK** provider abstraction, **JWT auth + per-user quotas**, and an **MCP** interface.
+> Instrumented every node with **Langfuse** and built an **eval harness** (LLM-as-judge) showing the
+> critic loop lifted diagram accuracy **X%→Y%**. Dockerized, CI-tested, deployed.
+> Stack: Python, FastAPI, LangGraph, Claude, pgvector, tldraw/React-TS, Supabase, Langfuse, Docker, GH Actions.
 
-Checks: multi-agent orchestration ✓, tool-calling/structured output ✓, observability ✓, eval-driven ✓,
-guardrails ✓, MCP ✓, voice/multimodal ✓, full-stack ✓.
+Covers: multi-agent ✓, tool-use ✓, RAG ✓, evals ✓, observability ✓, guardrails ✓, MCP ✓, async backend ✓,
+auth/limits ✓, tests/CI/Docker/deploy ✓, multimodal (v1) ✓.
 
-**Interview questions ye grill karenge (answers pehle se ready rakho):**
-- "Agent ko debug/measure kaise karte ho?" → Langfuse traces + eval harness dikhao.
-- "Critic loop infinite kyun nahi hota?" → iteration + cost caps, conditional edge.
-- "Prompt injection kaise handle kiya?" → separation + schema validate + red-team set.
-- "Judge par bharosa kyun?" → hand-calibration + agreement metric.
-- "Sonnet vs Haiku kaha aur kyun?" → model-tiering for cost/latency.
-- "Ye `tldraw-skill` se alag kaise?" → voice + live app + observable graph + evals + MCP.
+**They'll grill you on:** how you measure/debug agents (Langfuse + evals) · loop termination (caps + edge) ·
+injection defense (separation + red-team) · judge trust (calibration) · model-tiering (cost) · RAG design
+(what/why embedded) · async + backpressure in streaming · how it differs from `tldraw-skill`.
 
 ---
 
 ## 15. Risks & guardrails
 
-- **Integration risk (BIGGEST, v2-specific)** — tldraw client ko custom Python backend se wire karna.
-  *Mitigation:* Phase 0 mein template as-is chalao, contract samjho, PHIR swap. Ek action path se start.
-- **Two-language / schema drift** — Zod vs Pydantic mismatch. *Mitigation:* one shared spec + contract test in CI.
-- **Scope creep** — sabse bada silent killer. Ek angle (conversational + observable) par focus; presets/
-  multiplayer baad mein. MVP ki checklist se bahar mat jao jab tak MVP done na ho.
-- **LLM cost/latency** — critic N≤3, Haiku planner, prompt caching, stream.
-- **Voice accuracy (accents)** — Web Speech → Whisper; type hamesha available.
-- **"Just another AI diagram tool" perception** — README/demo mein multi-agent graph + voice +
-  self-correction + traces + eval numbers ko loud karo. Yehi moat.
-- **Don't reinvent canvas/collab** — tldraw pe raho; brain hi custom banao.
-- **Don't duplicate `tldraw-skill`** — presets/vision-check woh kar chuka; aap live-app + infra layer do.
+- **Integration (biggest)** — tldraw client ↔ custom Python backend. *Mitigate:* Phase-0 spike, one action path first.
+- **Scope creep (v3-critical)** — "perfect product" temptation. *Mitigate:* ship v0 deployed at W3; depth after.
+- **Frontend eats Python time** — *Mitigate:* keep `web/` thin, reuse template, invest in `agent/`.
+- **Schema drift** (Zod/Pydantic) — one spec + contract test in CI.
+- **LLM cost/latency** — critic N≤3, Haiku router/planner, prompt caching, stream, quotas.
+- **"Just another AI diagram tool"** — loud README: real-input grounding + observable graph + eval numbers + live URL.
+- **Don't reinvent canvas/collab** (tldraw) · **don't duplicate `tldraw-skill`** (go past it).
 
 ---
 
 ## 16. Immediate next steps
 
-1. `git init` yeh repo, phir `web/` mein tldraw agent-template fork clone/copy karo.
-   (`git clone https://github.com/tldraw/agent-template web` ya `npm create tldraw@latest`.)
-2. Anthropic API key → `.dev.vars`, `npm install && npm run dev` — template **as-is** chala ke
-   ek diagram type-prompt se banwao (pipeline samjho, contract note karo).
-3. `agent/` mein FastAPI + LangGraph skeleton khada karo; `pip install langgraph langchain-anthropic
-   fastapi uvicorn langfuse pydantic`. Ek dummy `/agent/stream` endpoint jo ek hardcoded action stream kare.
-4. Client ke transport ko us endpoint pe point karo — **ek** shape create end-to-end chala do.
-   (Yeh MVP ka spine hai; iske baad Planner/Drawer/Critic add karna incremental hai.)
-5. Phir §12 Week-by-week follow karo.
+1. **Phase-0 spike:** fork tldraw `agent-template` into `web/` (`npm create tldraw@latest` → agent kit),
+   run as-is with an Anthropic key, draw one diagram, and note exactly what the client sends/applies.
+2. Point the client transport at our Python `/agent/stream` (SSE) for a single "create shapes" path.
+3. Replace the graph stubs with real nodes: start with **Router + Planner + Drawer** and the first tool
+   (`parse_sql_schema`) → SQL DDL → ERD on canvas. (Critic + RAG come in v1.)
+4. Stand up Supabase (Postgres) + persist a session; wire Langfuse.
+5. Dockerize + CI + deploy → **v0 live**. Then follow §12.
 
 ---
 
-*Plan v2 solidified 2026-08-16. Verified: tldraw agent-template (modes/actions/prompt-parts, CF Worker,
-Anthropic/OpenAI/Google, `agent.schedule`/`interrupt`), prior-art `Agents365-ai/tldraw-skill` (117★),
-2026 agentic-AI job requirements (LangGraph/MCP/observability/evals/guardrails). Direction: Python-heavy
-agentic-AI roles, hybrid tldraw-client + Python/LangGraph agent-service.*
+*Plan v3 solidified 2026-08-16. Direction: Python-heavy agentic-AI + backend roles; a real, deployed,
+multi-tool spec-to-diagram agent. Verified against: tldraw agent-template, prior-art `tldraw-skill`,
+2026 agentic-AI/AI-Eng/Python-backend job requirements.*
