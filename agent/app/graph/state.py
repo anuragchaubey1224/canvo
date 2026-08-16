@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from app.graph.planner_llm import DiagramPlan
 from app.schema import AgentAction, CanvasContext
 from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema
@@ -33,6 +34,7 @@ class AgentState(TypedDict, total=False):
     input_kind: str  # "text" | "sql" | "openapi" | "code"
     parsed: ParsedSchema | None
     parsed_api: ParsedAPI | None
+    llm_plan: DiagramPlan | None
     # produced by the graph
     plan: Plan | None
     actions: list[AgentAction]

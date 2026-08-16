@@ -1,15 +1,17 @@
 """LangGraph nodes: Router → Planner → Drawer → Critic.
 
-Deterministic, real paths so far (no LLM):
-  - SQL DDL     → ERD          (parse_sql + build_erd_actions)
-  - OpenAPI/Swagger → API surface (parse_openapi + build_api_actions)
-The freeform `text` path is still a stub — it becomes the first Claude tool-calling
-node once an LLM key is configured (PLAN.md §5).
+Real paths:
+  - SQL DDL        → ERD            (parse_sql + build_erd_actions)  · deterministic
+  - OpenAPI/Swagger → API surface   (parse_openapi + build_api_actions) · deterministic
+  - freeform text  → node/edge graph (LLM planner + build_graph_actions) · needs an LLM key
+
+Critic is still a stub — vision self-correction lands in v1 (PLAN.md §5).
 """
 
 from __future__ import annotations
 
-from app.graph.layout import build_api_actions, build_erd_actions
+from app.graph.layout import build_api_actions, build_erd_actions, build_graph_actions
+from app.graph.planner_llm import plan_from_text
 from app.graph.state import AgentState
 from app.schema import AgentAction, Shape
 from app.tools.parse_openapi import looks_like_openapi, parse_openapi
@@ -34,7 +36,7 @@ def router(state: AgentState) -> AgentState:
     return {"input_kind": forced or "text", "parsed": None}
 
 
-def planner(state: AgentState) -> AgentState:
+async def planner(state: AgentState) -> AgentState:
     """Turn intent + parsed input into a plan. Touches no shapes."""
     parsed = state.get("parsed")
     if parsed and parsed.tables:
@@ -56,13 +58,25 @@ def planner(state: AgentState) -> AgentState:
             }
         }
 
-    # text path (stub until the LLM planner lands)
-    msg = state.get("user_message", "").strip()
+    # freeform text → LLM planner (structured output). Falls through to a stub if no key.
+    text = (state.get("payload") or state.get("user_message") or "").strip()
+    if text:
+        llm_plan = await plan_from_text(text)
+        if llm_plan:
+            return {
+                "llm_plan": llm_plan,
+                "plan": {
+                    "nodes": [{"id": n.id, "label": n.label} for n in llm_plan.nodes],
+                    "edges": [{"from": e.source, "to": e.target} for e in llm_plan.edges],
+                    "notes": "LLM plan from text",
+                },
+            }
+
     return {
         "plan": {
-            "nodes": [{"id": "a", "label": "Start"}, {"id": "b", "label": msg[:24] or "Step"}],
+            "nodes": [{"id": "a", "label": "Start"}, {"id": "b", "label": text[:24] or "Step"}],
             "edges": [{"from": "a", "to": "b"}],
-            "notes": "phase-0 stub plan",
+            "notes": "stub plan (no LLM key or empty input)",
         }
     }
 
@@ -77,8 +91,12 @@ def drawer(state: AgentState) -> AgentState:
     if api and api.groups:
         return {"actions": build_api_actions(api)}
 
-    # text path (stub)
-    label = (state.get("user_message", "") or "Step")[:24]
+    llm_plan = state.get("llm_plan")
+    if llm_plan and llm_plan.nodes:
+        return {"actions": build_graph_actions(llm_plan)}
+
+    # stub (no LLM key / empty input)
+    label = (state.get("payload") or state.get("user_message") or "Step")[:24]
     actions = [
         AgentAction(
             type="create", shape=Shape(id="a", type="geo", x=100, y=100, w=160, h=80, text="Start")

@@ -5,10 +5,10 @@
 > PRD, an OpenAPI spec, a SQL schema, code, or a plain description — draws on an infinite canvas,
 > and **self-corrects** with vision.
 
-**Status:** 🚧 early — the agent service runs end-to-end, wired to a live tldraw canvas.
-**SQL schema → ERD** and **OpenAPI → API surface** are real and deterministic (Router → Planner →
-Drawer, 17 passing tests); the freeform-text path (LLM) and Critic are still stubs. RAG and the
-production backend land next. Full plan: [`PLAN.md`](./PLAN.md).
+**Status:** 🚧 taking shape — the agent runs end-to-end, wired to a live tldraw canvas with
+persistence. Real paths: **SQL → ERD** and **OpenAPI → API surface** (deterministic), and
+**freeform text → diagram** via an **LLM planner** (tool-calling / structured output). Critic
+(vision self-correction) and RAG are next. 19 passing tests, ruff/mypy clean. Full plan: [`PLAN.md`](./PLAN.md).
 
 ---
 

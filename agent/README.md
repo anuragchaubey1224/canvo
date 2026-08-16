@@ -48,7 +48,9 @@ Postgres URL for prod. Models/engine/repository live in `app/db/`.
   structured schema, and `layout.py` emits table boxes + bound relation arrows. Covered by `tests/`.
 - ✅ **OpenAPI/Swagger → API surface** — deterministic (no LLM). `parse_openapi` (JSON or YAML) groups
   operations by tag, and `layout.py` emits a root node + per-group endpoint boxes with arrows.
-- 🚧 **Freeform text → diagram** — still a hardcoded stub; becomes the first Claude tool-calling node.
+- ✅ **Freeform text → diagram** — LLM planner (`planner_llm.py`) uses tool-calling / structured
+  output to turn a description into a typed node/edge graph, then `build_graph_actions` lays it out.
+  Needs an LLM key (`OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`); falls back to a stub without one.
 - 🚧 **Critic** — always "no issues" for now; vision-based self-correction lands in v1 (`PLAN.md` §5).
 
 ## Test

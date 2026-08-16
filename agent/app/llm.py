@@ -56,7 +56,12 @@ def build_chat_model(cfg: LLMConfig):
     if cfg.provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        kwargs: dict[str, Any] = {"model": cfg.model, "api_key": cfg.api_key}
+        kwargs: dict[str, Any] = {
+            "model": cfg.model,
+            "api_key": cfg.api_key,
+            "timeout": 45,
+            "max_retries": 2,
+        }
         return ChatAnthropic(**kwargs)
 
     # OpenRouter / openai-compatible. Requires `langchain-openai` (see requirements.txt).
@@ -66,5 +71,7 @@ def build_chat_model(cfg: LLMConfig):
         "model": cfg.model,
         "api_key": cfg.api_key,
         "base_url": cfg.base_url or "https://openrouter.ai/api/v1",
+        "timeout": 45,
+        "max_retries": 2,
     }
     return ChatOpenAI(**kwargs)

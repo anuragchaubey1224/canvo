@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from app.graph.planner_llm import DiagramPlan
 from app.schema import AgentAction, Shape
 from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema, Table
@@ -134,6 +135,46 @@ def build_api_actions(api: ParsedAPI, *, cols: int = 3) -> list[AgentAction]:
                     y=y,
                     from_id=root_id,
                     to_id=gid,
+                ),
+            )
+        )
+
+    return actions
+
+
+def build_graph_actions(plan: DiagramPlan, *, cols: int = 3) -> list[AgentAction]:
+    """Generic node/edge diagram (from the LLM planner): boxes in a grid + bound arrows."""
+    actions: list[AgentAction] = []
+
+    for i, node in enumerate(plan.nodes):
+        row, col = divmod(i, max(1, cols))
+        actions.append(
+            AgentAction(
+                type="create",
+                shape=Shape(
+                    id=f"n-{_slug(node.id)}",
+                    type="geo",
+                    x=_X0 + col * _GAP_X,
+                    y=_Y0 + row * _GAP_Y,
+                    w=_BOX_W,
+                    h=80,
+                    text=node.label,
+                ),
+            )
+        )
+
+    for i, edge in enumerate(plan.edges):
+        actions.append(
+            AgentAction(
+                type="create",
+                shape=Shape(
+                    id=f"e-{i}-{_slug(edge.source)}-{_slug(edge.target)}",
+                    type="arrow",
+                    x=_X0,
+                    y=_Y0,
+                    from_id=f"n-{_slug(edge.source)}",
+                    to_id=f"n-{_slug(edge.target)}",
+                    text=edge.label or "",
                 ),
             )
         )
