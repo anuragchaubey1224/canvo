@@ -12,8 +12,8 @@ from app.schema import AgentAction, Shape
 from app.tools.parse_sql import ParsedSchema, Table
 
 _BOX_W = 240
-_GAP_X = 300
-_GAP_Y = 240
+_GAP_X = 440  # generous so tables (which grow to fit text) don't crowd their arrows
+_GAP_Y = 420
 _X0 = 80
 _Y0 = 80
 

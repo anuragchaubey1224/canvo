@@ -4,12 +4,7 @@
 import { createShapeId, toRichText, type Editor } from 'tldraw'
 import type { AgentAction, Shape } from './types'
 
-type Box = { x: number; y: number; w: number; h: number }
-
-/** Returns a stateful applier that remembers box geometry so it can route arrows. */
 export function makeApplier(editor: Editor) {
-  const boxes = new Map<string, Box>()
-
   return (action: AgentAction) => {
     if (action.type === 'delete' && action.shape_id) {
       editor.deleteShape(createShapeId(action.shape_id))
@@ -20,14 +15,11 @@ export function makeApplier(editor: Editor) {
     if (!s) return
 
     if (s.type === 'arrow') {
-      createArrow(editor, boxes, s)
+      createArrow(editor, s)
       return
     }
 
     // geo box (default)
-    const w = s.w || 160
-    const h = s.h || 80
-    boxes.set(s.id, { x: s.x, y: s.y, w, h })
     editor.createShape({
       id: createShapeId(s.id),
       type: 'geo',
@@ -35,8 +27,8 @@ export function makeApplier(editor: Editor) {
       y: s.y,
       props: {
         geo: 'rectangle',
-        w,
-        h,
+        w: s.w || 160,
+        h: s.h || 80,
         richText: toRichText(s.text ?? ''),
         size: 's',
         align: 'start',
@@ -46,12 +38,28 @@ export function makeApplier(editor: Editor) {
   }
 }
 
-function createArrow(editor: Editor, boxes: Map<string, Box>, s: Shape) {
-  const from = s.from_id ? boxes.get(s.from_id) : undefined
-  const to = s.to_id ? boxes.get(s.to_id) : undefined
-  // Route from the right edge of the source box to the left edge of the target box.
-  const start = from ? { x: from.x + from.w, y: from.y + from.h / 2 } : { x: s.x, y: s.y }
-  const end = to ? { x: to.x, y: to.y + to.h / 2 } : { x: s.x + 120, y: s.y }
+function createArrow(editor: Editor, s: Shape) {
+  const fromId = s.from_id ? createShapeId(s.from_id) : undefined
+  const toId = s.to_id ? createShapeId(s.to_id) : undefined
+  // Read the ACTUAL rendered bounds (tldraw grows boxes to fit text), so the
+  // arrow connects real edges instead of our estimated geometry.
+  const a = fromId ? editor.getShapePageBounds(fromId) : undefined
+  const b = toId ? editor.getShapePageBounds(toId) : undefined
+
+  let start = { x: s.x, y: s.y }
+  let end = { x: s.x + 120, y: s.y }
+  if (a && b) {
+    if (b.minX >= a.maxX) {
+      start = { x: a.maxX, y: a.center.y }
+      end = { x: b.minX, y: b.center.y }
+    } else if (b.maxX <= a.minX) {
+      start = { x: a.minX, y: a.center.y }
+      end = { x: b.maxX, y: b.center.y }
+    } else {
+      start = { x: a.center.x, y: a.maxY }
+      end = { x: b.center.x, y: b.minY }
+    }
+  }
 
   editor.createShape({
     id: createShapeId(s.id),
