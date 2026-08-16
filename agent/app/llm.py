@@ -11,19 +11,20 @@ logged or persisted (see PLAN.md §6c). Always serve over HTTPS in prod.
 Phase 0: `build_chat_model` isn't called yet (nodes are hardcoded stubs).
 Wire it into planner/drawer/critic when replacing the stubs (PLAN.md §5).
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any
 
 
 @dataclass
 class LLMConfig:
-    provider: str = "anthropic"        # "anthropic" | "openrouter" | "openai-compatible"
+    provider: str = "anthropic"  # "anthropic" | "openrouter" | "openai-compatible"
     model: str = "claude-sonnet-5"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None     # for openrouter / custom gateways
+    api_key: str | None = None
+    base_url: str | None = None  # for openrouter / custom gateways
 
 
 def resolve_config(user_override: dict | None = None) -> LLMConfig:
@@ -55,10 +56,15 @@ def build_chat_model(cfg: LLMConfig):
     if cfg.provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=cfg.model, api_key=cfg.api_key)
+        kwargs: dict[str, Any] = {"model": cfg.model, "api_key": cfg.api_key}
+        return ChatAnthropic(**kwargs)
 
     # OpenRouter / openai-compatible. Requires `langchain-openai` (see requirements.txt).
     from langchain_openai import ChatOpenAI
 
-    base_url = cfg.base_url or "https://openrouter.ai/api/v1"
-    return ChatOpenAI(model=cfg.model, api_key=cfg.api_key, base_url=base_url)
+    kwargs = {
+        "model": cfg.model,
+        "api_key": cfg.api_key,
+        "base_url": cfg.base_url or "https://openrouter.ai/api/v1",
+    }
+    return ChatOpenAI(**kwargs)

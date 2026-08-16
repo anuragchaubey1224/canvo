@@ -3,9 +3,10 @@
 The whole run is carried in this state object. Each node returns a partial
 update, which LangGraph merges in.
 """
+
 from __future__ import annotations
 
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from app.schema import AgentAction, CanvasContext
 from app.tools.parse_openapi import ParsedAPI
@@ -26,16 +27,16 @@ class Critique(TypedDict):
 class AgentState(TypedDict, total=False):
     # inputs
     user_message: str
-    payload: Optional[str]
+    payload: str | None
     canvas_context: CanvasContext
     # set by the Router
     input_kind: str  # "text" | "sql" | "openapi" | "code"
-    parsed: Optional[ParsedSchema]
-    parsed_api: Optional[ParsedAPI]
+    parsed: ParsedSchema | None
+    parsed_api: ParsedAPI | None
     # produced by the graph
-    plan: Optional[Plan]
+    plan: Plan | None
     actions: list[AgentAction]
-    critique: Optional[Critique]
+    critique: Critique | None
     # loop control / accounting
     iterations: int
     cost_usd: float

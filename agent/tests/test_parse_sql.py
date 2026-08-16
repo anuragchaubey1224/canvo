@@ -1,4 +1,5 @@
 """Unit tests for the SQL DDL parser (no LLM, fully deterministic)."""
+
 from __future__ import annotations
 
 from app.tools.parse_sql import looks_like_sql, parse_sql

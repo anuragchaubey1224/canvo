@@ -6,6 +6,7 @@ Deterministic, real paths so far (no LLM):
 The freeform `text` path is still a stub — it becomes the first Claude tool-calling
 node once an LLM key is configured (PLAN.md §5).
 """
+
 from __future__ import annotations
 
 from app.graph.layout import build_api_actions, build_erd_actions
@@ -79,9 +80,16 @@ def drawer(state: AgentState) -> AgentState:
     # text path (stub)
     label = (state.get("user_message", "") or "Step")[:24]
     actions = [
-        AgentAction(type="create", shape=Shape(id="a", type="geo", x=100, y=100, w=160, h=80, text="Start")),
-        AgentAction(type="create", shape=Shape(id="b", type="geo", x=360, y=100, w=160, h=80, text=label)),
-        AgentAction(type="create", shape=Shape(id="edge-ab", type="arrow", x=260, y=140, from_id="a", to_id="b")),
+        AgentAction(
+            type="create", shape=Shape(id="a", type="geo", x=100, y=100, w=160, h=80, text="Start")
+        ),
+        AgentAction(
+            type="create", shape=Shape(id="b", type="geo", x=360, y=100, w=160, h=80, text=label)
+        ),
+        AgentAction(
+            type="create",
+            shape=Shape(id="edge-ab", type="arrow", x=260, y=140, from_id="a", to_id="b"),
+        ),
     ]
     return {"actions": actions}
 

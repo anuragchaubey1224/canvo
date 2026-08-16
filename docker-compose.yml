@@ -1,0 +1,13 @@
+# Local run: `docker compose up --build` → agent on http://localhost:8000
+# Deterministic paths (SQL/OpenAPI) need no keys; LLM paths read the vars below
+# (set them in a root .env or your shell — compose substitutes them here).
+services:
+  agent:
+    build: ./agent
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-sonnet-4.5}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

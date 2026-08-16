@@ -1,4 +1,5 @@
 """Integration test: the graph turns an OpenAPI spec into an API-surface diagram."""
+
 from __future__ import annotations
 
 import asyncio

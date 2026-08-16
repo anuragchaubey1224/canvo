@@ -4,6 +4,7 @@ Kept deterministic on purpose — no LLM here. It gives us a correct, reproducib
 baseline (useful as an eval reference) before the LLM-driven layout lands for fuzzy
 inputs like plain-text descriptions.
 """
+
 from __future__ import annotations
 
 import re
@@ -118,7 +119,9 @@ def build_api_actions(api: ParsedAPI, *, cols: int = 3) -> list[AgentAction]:
         actions.append(
             AgentAction(
                 type="create",
-                shape=Shape(id=gid, type="geo", x=x, y=y, w=_BOX_W, h=height, text="\n".join(lines)),
+                shape=Shape(
+                    id=gid, type="geo", x=x, y=y, w=_BOX_W, h=height, text="\n".join(lines)
+                ),
             )
         )
         actions.append(

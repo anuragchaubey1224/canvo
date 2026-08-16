@@ -5,13 +5,15 @@ common shapes of Postgres / MySQL / SQLite DDL:
 
 - column definitions with types (incl. parametrized types like `VARCHAR(255)`, `NUMERIC(10,2)`)
 - inline `PRIMARY KEY` and `REFERENCES other(col)`
-- table-level `PRIMARY KEY (...)`, `FOREIGN KEY (...) REFERENCES ...`, `CONSTRAINT ... FOREIGN KEY ...`
+- table-level `PRIMARY KEY (...)` and `FOREIGN KEY (...) REFERENCES ...`
+- named `CONSTRAINT ... FOREIGN KEY ...` / `CONSTRAINT ... PRIMARY KEY ...`
 - quoted identifiers (`` ` ``, `"`, `[ ]`) and `schema.table` names
 - line (`--`) and block (`/* */`) comments
 
 Limitations (documented on purpose): no ALTER TABLE, no cross-statement constraint
 resolution beyond what's inline, composite FKs collapse to their first column pair.
 """
+
 from __future__ import annotations
 
 import re
@@ -53,9 +55,23 @@ class ParsedSchema(BaseModel):
 
 _REF = r"[`\"\[\]\w.]+"  # a (possibly quoted / schema-qualified) identifier
 _TYPE_STOP_WORDS = {
-    "primary", "key", "not", "null", "default", "unique", "references", "check",
-    "constraint", "auto_increment", "autoincrement", "generated", "collate",
-    "comment", "on", "unsigned", "zerofill",
+    "primary",
+    "key",
+    "not",
+    "null",
+    "default",
+    "unique",
+    "references",
+    "check",
+    "constraint",
+    "auto_increment",
+    "autoincrement",
+    "generated",
+    "collate",
+    "comment",
+    "on",
+    "unsigned",
+    "zerofill",
 }
 
 
@@ -65,7 +81,7 @@ def looks_like_sql(text: str) -> bool:
 
 
 def _clean_ident(token: str) -> str:
-    return token.strip().strip("`\"[]").split(".")[-1].strip("`\"[]").strip()
+    return token.strip().strip('`"[]').split(".")[-1].strip('`"[]').strip()
 
 
 def _strip_comments(sql: str) -> str:
@@ -110,7 +126,7 @@ def _find_create_tables(sql: str) -> list[tuple[str, str]]:
             elif sql[i] == ")":
                 depth -= 1
             i += 1
-        out.append((name, sql[m.end():i - 1]))
+        out.append((name, sql[m.end() : i - 1]))
     return out
 
 
@@ -160,11 +176,13 @@ def parse_sql(ddl: str) -> ParsedSchema:
                 pk_constraints.setdefault(table_name, set()).update(_cols_in_parens(item))
                 continue
             if head == "foreign" and len(tokens) > 1 and tokens[1].lower() == "key":
-                if (rel := _parse_fk(item, table_name)):
+                if rel := _parse_fk(item, table_name):
                     schema.relations.append(rel)
                 continue
             if head == "constraint":
-                if re.search(r"\bforeign\s+key\b", item, re.I) and (rel := _parse_fk(item, table_name)):
+                if re.search(r"\bforeign\s+key\b", item, re.I) and (
+                    rel := _parse_fk(item, table_name)
+                ):
                     schema.relations.append(rel)
                 elif re.search(r"\bprimary\s+key\b", item, re.I):
                     pk_constraints.setdefault(table_name, set()).update(_cols_in_parens(item))

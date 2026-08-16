@@ -5,21 +5,22 @@ Phase 0 exposes:
   - POST /agent/stream  runs the LangGraph Planner→Drawer→Critic graph and
                         streams AgentActions to the tldraw client (SSE).
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 
 from dotenv import load_dotenv
-
-load_dotenv()  # read agent/.env (API keys, provider config) before anything uses it
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from app.graph.build import graph
 from app.schema import AgentInput
+
+# Read agent/.env (API keys, provider config) before any request resolves LLM config.
+load_dotenv()
 
 app = FastAPI(title="Canvo Agent Service", version="0.0.1")
 

@@ -1,4 +1,5 @@
 """Unit tests for the OpenAPI parser (no LLM, deterministic)."""
+
 from __future__ import annotations
 
 import json

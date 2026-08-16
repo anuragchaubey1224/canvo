@@ -1,8 +1,9 @@
 """Wire the Router → Planner → Drawer → Critic graph with a bounded refine loop.
 
-    START → router → planner → drawer → critic ─┬─(issues & iters<MAX)→ drawer  (refine)
-                                                └─(else)──────────────→ END
+START → router → planner → drawer → critic ─┬─(issues & iters<MAX)→ drawer  (refine)
+                                            └─(else)──────────────→ END
 """
+
 from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
@@ -14,8 +15,9 @@ MAX_ITERS = 3  # loop guard — see guardrails.py / PLAN.md §6c
 
 
 def _should_refine(state: AgentState) -> str:
-    critique = state.get("critique") or {}
-    if critique.get("has_issues") and state.get("iterations", 0) < MAX_ITERS:
+    critique = state.get("critique")
+    has_issues = bool(critique and critique.get("has_issues"))
+    if has_issues and state.get("iterations", 0) < MAX_ITERS:
         return "refine"
     return "done"
 

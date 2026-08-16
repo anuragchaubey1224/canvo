@@ -6,6 +6,7 @@ Full implementations land in v1 (see PLAN.md §6c):
   - prompt-injection defense  (keep user text separate from system instructions)
   - schema validate + sanitize (drop invalid shape ids / clamp out-of-bounds coords)
 """
+
 from __future__ import annotations
 
 MAX_COST_USD = 0.50

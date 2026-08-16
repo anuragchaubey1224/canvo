@@ -6,6 +6,7 @@ plus one box per group listing its `METHOD /path` endpoints.
 
 Limitations (on purpose): no `$ref` resolution, no request/response schema graphs.
 """
+
 from __future__ import annotations
 
 import json
@@ -78,8 +79,8 @@ def parse_openapi(text: str) -> ParsedAPI:
     if not isinstance(doc, dict):
         return ParsedAPI()
 
-    info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
-    title = str(info.get("title") or "API")
+    info = doc.get("info")
+    title = str(info.get("title") or "API") if isinstance(info, dict) else "API"
 
     paths = doc.get("paths")
     if not isinstance(paths, dict):

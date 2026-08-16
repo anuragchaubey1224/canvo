@@ -7,9 +7,10 @@ stream of `AgentAction`s that it applies to the tldraw canvas.
 Keep this in sync with the client-side Zod schema — a contract test guards
 against drift (see PLAN.md §4).
 """
+
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,10 +24,10 @@ class Shape(BaseModel):
     y: float
     w: float = 0
     h: float = 0
-    text: Optional[str] = None
+    text: str | None = None
     # For arrows/connectors: bind endpoints to other shapes (e.g. ERD relations).
-    from_id: Optional[str] = None
-    to_id: Optional[str] = None
+    from_id: str | None = None
+    to_id: str | None = None
 
 
 class CanvasContext(BaseModel):
@@ -34,7 +35,7 @@ class CanvasContext(BaseModel):
 
     focused_shapes: list[Shape] = Field(default_factory=list)
     blurry_shapes: list[Shape] = Field(default_factory=list)
-    screenshot: Optional[str] = None  # base64 PNG; used by the Critic (vision)
+    screenshot: str | None = None  # base64 PNG; used by the Critic (vision)
 
 
 class LLMOverride(BaseModel):
@@ -44,10 +45,10 @@ class LLMOverride(BaseModel):
     or any OpenAI-compatible gateway). Never logged or persisted. See app/llm.py.
     """
 
-    provider: Optional[str] = None  # "anthropic" | "openrouter" | "openai-compatible"
-    model: Optional[str] = None
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    provider: str | None = None  # "anthropic" | "openrouter" | "openai-compatible"
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
 
 
 class AgentInput(BaseModel):
@@ -56,16 +57,16 @@ class AgentInput(BaseModel):
     message: str = ""  # optional: pure spec/payload runs need no instruction
     canvas_context: CanvasContext = Field(default_factory=CanvasContext)
     session_id: str = "dev"
-    llm: Optional[LLMOverride] = None  # BYOK; falls back to server env when absent
+    llm: LLMOverride | None = None  # BYOK; falls back to server env when absent
     # Input routing. `payload` carries raw material (SQL DDL, an OpenAPI doc, code…);
     # `input_kind` optionally forces the route, else the Router auto-detects from message/payload.
-    input_kind: Optional[str] = None  # "text" | "sql" | "openapi" | "code"
-    payload: Optional[str] = None
+    input_kind: str | None = None  # "text" | "sql" | "openapi" | "code"
+    payload: str | None = None
 
 
 class AgentAction(BaseModel):
     """Service → client (streamed). One canvas operation."""
 
     type: Literal["create", "update", "delete"]
-    shape: Optional[Shape] = None  # for create / update
-    shape_id: Optional[str] = None  # for delete, or to reference an update target
+    shape: Shape | None = None  # for create / update
+    shape_id: str | None = None  # for delete, or to reference an update target
