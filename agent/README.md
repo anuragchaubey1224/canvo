@@ -36,6 +36,11 @@ uvicorn app.main:app --reload
 
 - `GET  /health` → service status
 - `POST /agent/stream` → runs the Planner→Drawer→Critic graph, streams `AgentAction` events (SSE)
+- `POST /sessions` → create a session (persistence)
+- `GET  /sessions/{id}/snapshot` · `PUT /sessions/{id}/snapshot` → load / save the tldraw snapshot
+
+Persistence uses SQLAlchemy (async) on SQLite for dev (`canvo.db`); set `DATABASE_URL` to a
+Postgres URL for prod. Models/engine/repository live in `app/db/`.
 
 ## What works vs what's a stub
 

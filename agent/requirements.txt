@@ -5,6 +5,10 @@ pydantic>=2.7
 python-dotenv>=1.0
 pyyaml>=6.0            # parse YAML OpenAPI specs
 
+# Persistence (SQLite for dev; Postgres via DATABASE_URL for prod)
+sqlalchemy[asyncio]>=2.0
+aiosqlite>=0.20
+
 # Agentic core
 langgraph>=0.2
 langchain-anthropic>=0.2

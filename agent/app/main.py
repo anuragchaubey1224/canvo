@@ -10,19 +10,31 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import repo
+from app.db.engine import get_db, init_db
 from app.graph.build import graph
 from app.schema import AgentInput
 
 # Read agent/.env (API keys, provider config) before any request resolves LLM config.
 load_dotenv()
 
-app = FastAPI(title="Canvo Agent Service", version="0.0.1")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await init_db()  # dev convenience; Alembic owns prod migrations
+    yield
+
+
+app = FastAPI(title="Canvo Agent Service", version="0.0.1", lifespan=lifespan)
 
 # Phase 0: open CORS for local dev. TODO: lock to the web origin before deploy.
 app.add_middleware(
@@ -36,6 +48,33 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "canvo-agent", "version": "0.0.1"}
+
+
+class SnapshotIn(BaseModel):
+    snapshot: str
+
+
+@app.post("/sessions")
+async def create_session(db: AsyncSession = Depends(get_db)):
+    """Create a session; the client stores its id and autosaves snapshots to it."""
+    s = await repo.create_session(db)
+    return {"id": s.id, "title": s.title}
+
+
+@app.get("/sessions/{session_id}/snapshot")
+async def get_snapshot(session_id: str, db: AsyncSession = Depends(get_db)):
+    s = await repo.get_session(db, session_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"snapshot": s.snapshot}
+
+
+@app.put("/sessions/{session_id}/snapshot")
+async def put_snapshot(session_id: str, body: SnapshotIn, db: AsyncSession = Depends(get_db)):
+    s = await repo.save_snapshot(db, session_id, body.snapshot)
+    if s is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True, "updated_at": s.updated_at.isoformat()}
 
 
 @app.post("/agent/stream")
