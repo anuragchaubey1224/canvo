@@ -1,0 +1,82 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.app {
+  display: flex;
+  height: 100%;
+}
+
+.panel {
+  width: 320px;
+  flex: 0 0 320px;
+  padding: 16px;
+  border-right: 1px solid #e5e7eb;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.panel .tag {
+  margin: 2px 0 0;
+  color: #6b7280;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.panel textarea {
+  flex: 1 1 auto;
+  min-height: 240px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.panel button {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.panel .status {
+  margin: 0;
+  font-size: 12px;
+  color: #374151;
+  min-height: 32px;
+}
+
+.canvas {
+  position: relative;
+  flex: 1 1 auto;
+}

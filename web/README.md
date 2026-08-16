@@ -1,24 +1,40 @@
 # Canvo Web (tldraw canvas client)
 
-**Placeholder — added in the Phase-0 spike (PLAN.md §11).**
+A **thin** React + Vite client built directly on the **tldraw SDK**. It sends input to the Python
+agent-service and applies the streamed `AgentAction`s onto the canvas. The engineering lives in
+`agent/`; this stays intentionally minimal (PLAN.md — "keep `web/` thin").
 
-## Next step
+> Note: we use the tldraw **SDK** directly (not a fork of `tldraw/agent-template`). Bending the
+> template's Cloudflare-Worker protocol to our Python contract was more work and more risk than a
+> ~50-line action-apply layer we own. Same canvas, our contract stays central.
 
-Fork the tldraw agent starter kit into this folder and get it running *as-is* first, so we
-learn the client↔server contract before swapping in our Python brain:
+## Layout
 
-```bash
-# from repo root
-npm create tldraw@latest            # choose the "agent" starter kit
-# or: git clone https://github.com/tldraw/agent-template web
+```
+web/src/
+├── App.tsx              # input panel + <Tldraw> canvas; streams + applies actions
+├── lib/
+│   ├── types.ts         # mirror of the service contract (AgentAction, AgentInput)
+│   ├── transport.ts     # POST /agent/stream, parse SSE
+│   └── applyActions.ts  # AgentAction → tldraw shapes (geo boxes + bound arrows)
+└── index.css            # minimal layout (polish comes later)
 ```
 
-Then:
+## Run
 
-1. Run it unchanged with an Anthropic key (`.dev.vars`) — type a prompt, watch it draw.
-2. Note exactly what the client sends (message + canvas context) and what actions it applies.
-3. Point the client's transport at our Python service (`POST http://127.0.0.1:8000/agent/stream`,
-   SSE) for a single "create shapes" path — see `shared/README.md` for the contract.
+```bash
+# 1) start the agent (separate terminal)
+cd ../agent && source .venv/bin/activate && uvicorn app.main:app --port 8000
 
-What we **keep** from the template: the canvas, action-apply, and visual-context gathering
-(screenshot + shape data). What we **replace**: the server/brain → `agent/` (Python + LangGraph).
+# 2) start the web client
+npm install
+npm run dev          # http://localhost:5173
+```
+
+Paste a SQL schema (a sample is pre-filled) and hit **Generate** — table boxes + foreign-key arrows
+stream onto the canvas. Point at a different agent URL with `VITE_AGENT_URL`.
+
+## Status
+
+Spike: SQL → ERD renders end-to-end. UI is deliberately bare; design polish, more input types, and
+live-streaming affordances land later.

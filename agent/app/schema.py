@@ -53,7 +53,7 @@ class LLMOverride(BaseModel):
 class AgentInput(BaseModel):
     """Client → service."""
 
-    message: str
+    message: str = ""  # optional: pure spec/payload runs need no instruction
     canvas_context: CanvasContext = Field(default_factory=CanvasContext)
     session_id: str = "dev"
     llm: Optional[LLMOverride] = None  # BYOK; falls back to server env when absent
