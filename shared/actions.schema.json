@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://canvo.dev/shared/actions.schema.json",
+  "title": "Canvo client↔service contract",
+  "definitions": {
+    "Shape": {
+      "type": "object",
+      "required": ["id", "type", "x", "y"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "description": "geo | arrow | text | ..." },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number", "default": 0 },
+        "h": { "type": "number", "default": 0 },
+        "text": { "type": ["string", "null"] }
+      }
+    },
+    "CanvasContext": {
+      "type": "object",
+      "properties": {
+        "focused_shapes": { "type": "array", "items": { "$ref": "#/definitions/Shape" } },
+        "blurry_shapes": { "type": "array", "items": { "$ref": "#/definitions/Shape" } },
+        "screenshot": { "type": ["string", "null"], "description": "base64 PNG" }
+      }
+    },
+    "LLMOverride": {
+      "type": "object",
+      "description": "Optional per-request BYOK override; used only for that request, never persisted.",
+      "properties": {
+        "provider": { "type": "string", "description": "anthropic | openrouter | openai-compatible" },
+        "model": { "type": "string" },
+        "api_key": { "type": "string" },
+        "base_url": { "type": ["string", "null"] }
+      }
+    },
+    "AgentInput": {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "message": { "type": "string" },
+        "session_id": { "type": "string", "default": "dev" },
+        "canvas_context": { "$ref": "#/definitions/CanvasContext" },
+        "llm": { "$ref": "#/definitions/LLMOverride" }
+      }
+    },
+    "AgentAction": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["create", "update", "delete"] },
+        "shape": { "$ref": "#/definitions/Shape" },
+        "shape_id": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

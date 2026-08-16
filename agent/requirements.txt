@@ -1,0 +1,15 @@
+# Canvo agent-service dependencies (Phase 0)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+python-dotenv>=1.0
+
+# Agentic core
+langgraph>=0.2
+langchain-anthropic>=0.2
+
+# Optional: OpenRouter / any OpenAI-compatible provider (BYOK) — uncomment to enable
+# langchain-openai>=0.2
+
+# Observability (wired in Phase 1; harmless to install now)
+langfuse>=2.0
