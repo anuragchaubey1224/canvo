@@ -24,6 +24,9 @@ class Shape(BaseModel):
     w: float = 0
     h: float = 0
     text: Optional[str] = None
+    # For arrows/connectors: bind endpoints to other shapes (e.g. ERD relations).
+    from_id: Optional[str] = None
+    to_id: Optional[str] = None
 
 
 class CanvasContext(BaseModel):
@@ -54,6 +57,10 @@ class AgentInput(BaseModel):
     canvas_context: CanvasContext = Field(default_factory=CanvasContext)
     session_id: str = "dev"
     llm: Optional[LLMOverride] = None  # BYOK; falls back to server env when absent
+    # Input routing. `payload` carries raw material (SQL DDL, an OpenAPI doc, code…);
+    # `input_kind` optionally forces the route, else the Router auto-detects from message/payload.
+    input_kind: Optional[str] = None  # "text" | "sql" | "openapi" | "code"
+    payload: Optional[str] = None
 
 
 class AgentAction(BaseModel):

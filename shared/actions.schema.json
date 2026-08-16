@@ -13,7 +13,9 @@
         "y": { "type": "number" },
         "w": { "type": "number", "default": 0 },
         "h": { "type": "number", "default": 0 },
-        "text": { "type": ["string", "null"] }
+        "text": { "type": ["string", "null"] },
+        "from_id": { "type": ["string", "null"], "description": "arrow source shape id (e.g. ERD relation)" },
+        "to_id": { "type": ["string", "null"], "description": "arrow target shape id" }
       }
     },
     "CanvasContext": {
@@ -40,6 +42,8 @@
       "properties": {
         "message": { "type": "string" },
         "session_id": { "type": "string", "default": "dev" },
+        "input_kind": { "type": ["string", "null"], "description": "text | sql | openapi | code; omit to auto-detect" },
+        "payload": { "type": ["string", "null"], "description": "raw input material (SQL DDL, OpenAPI doc, code)" },
         "canvas_context": { "$ref": "#/definitions/CanvasContext" },
         "llm": { "$ref": "#/definitions/LLMOverride" }
       }

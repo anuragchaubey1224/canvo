@@ -5,8 +5,9 @@
 > PRD, an OpenAPI spec, a SQL schema, code, or a plain description — draws on an infinite canvas,
 > and **self-corrects** with vision.
 
-**Status:** 🚧 Phase 0 (scaffold) — the agent service runs end-to-end with stub nodes. Real tools,
-RAG, the canvas client, and the production backend land next. Full plan: [`PLAN.md`](./PLAN.md).
+**Status:** 🚧 early — the agent service runs end-to-end. **SQL schema → ERD** is real and
+deterministic (Router → Planner → Drawer, 10 passing tests); the freeform-text path and Critic are
+still stubs. RAG, the canvas client, and the production backend land next. Full plan: [`PLAN.md`](./PLAN.md).
 
 ---
 
@@ -41,13 +42,17 @@ pip install -r requirements.txt
 cp .env.example .env            # add ANTHROPIC_API_KEY when wiring the LLM
 uvicorn app.main:app --reload   # http://127.0.0.1:8000
 
-# smoke test:
+# smoke test — SQL schema → ERD:
 curl -N -X POST http://127.0.0.1:8000/agent/stream \
   -H 'content-type: application/json' \
-  -d '{"message":"users table with orders","session_id":"dev"}'
+  -d '{"message":"","payload":"CREATE TABLE users (id SERIAL PRIMARY KEY, email VARCHAR(255)); CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT REFERENCES users(id));"}'
+
+# run the tests:
+python -m pytest
 ```
 
-You'll see `AgentAction` events stream back (the Phase-0 stub draws two boxes + an arrow).
+You'll see `AgentAction` events stream back: a table box per table (with PK/FK markers) plus a bound
+arrow per foreign-key relation.
 
 ## Roadmap
 

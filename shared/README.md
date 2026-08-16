@@ -15,6 +15,8 @@ A contract test should fail CI if the two drift apart (PLAN.md §4).
 {
   "message": "draw a login flow",
   "session_id": "dev",
+  "input_kind": null,             // text | sql | openapi | code; omit to auto-detect
+  "payload": null,                // raw material: SQL DDL / OpenAPI doc / code
   "canvas_context": {
     "focused_shapes": [{ "id": "x", "type": "geo", "x": 0, "y": 0, "w": 160, "h": 80, "text": "Cart" }],
     "blurry_shapes": [],
@@ -32,10 +34,13 @@ A contract test should fail CI if the two drift apart (PLAN.md §4).
 **`AgentAction`** (service → client, streamed one per SSE `data:` line)
 
 ```jsonc
-{ "type": "create", "shape": { "id": "a", "type": "geo", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Start" } }
+{ "type": "create", "shape": { "id": "tbl-users", "type": "geo", "x": 80, "y": 80, "w": 240, "h": 84, "text": "users\n- id [PK]\n- email" } }
+{ "type": "create", "shape": { "id": "rel-orders-user_id-users", "type": "arrow", "x": 620, "y": 100, "from_id": "tbl-orders", "to_id": "tbl-users", "text": "user_id → id" } }
 { "type": "update", "shape_id": "a", "shape": { "id": "a", "type": "geo", "x": 120, "y": 100, "w": 200, "h": 80, "text": "Start" } }
 { "type": "delete", "shape_id": "a" }
 ```
+
+Arrows/connectors carry `from_id` / `to_id` so the client can bind them to shapes (e.g. ERD relations).
 
 The stream ends with an SSE `event: done` carrying `{ "iterations": N }`.
 

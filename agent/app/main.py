@@ -40,6 +40,8 @@ async def agent_stream(payload: AgentInput):
     async def event_gen():
         state = {
             "user_message": payload.message,
+            "payload": payload.payload,
+            "input_kind": payload.input_kind,
             "canvas_context": payload.canvas_context,
             "iterations": 0,
             "cost_usd": 0.0,

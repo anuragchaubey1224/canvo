@@ -10,12 +10,17 @@ agent/
 ├── app/
 │   ├── main.py           # FastAPI: /health, /agent/stream (SSE)
 │   ├── schema.py         # Pydantic contract: AgentInput, CanvasContext, AgentAction
+│   ├── llm.py            # provider abstraction (Anthropic / OpenRouter / …) + BYOK
 │   ├── guardrails.py     # cost/iteration caps (stubs; real safety layer in v1)
+│   ├── tools/
+│   │   └── parse_sql.py  # SQL DDL → structured schema (tables, columns, relations)
 │   └── graph/
 │       ├── state.py      # AgentState (LangGraph state)
-│       ├── nodes.py      # planner / drawer / critic  (Phase-0 stubs)
+│       ├── nodes.py      # router / planner / drawer / critic
+│       ├── layout.py     # deterministic ERD layout (parsed schema → actions)
 │       └── build.py      # StateGraph wiring + bounded refine loop
-├── requirements.txt
+├── tests/                # pytest: parser + graph
+├── requirements.txt · requirements-dev.txt · pytest.ini
 └── .env.example
 ```
 
@@ -31,7 +36,16 @@ uvicorn app.main:app --reload
 - `GET  /health` → service status
 - `POST /agent/stream` → runs the Planner→Drawer→Critic graph, streams `AgentAction` events (SSE)
 
-## What's a stub right now
+## What works vs what's a stub
 
-`nodes.py` produces a tiny hardcoded diagram so the full pipeline works without an API key.
-Replacing each node with Claude tool-calling is the first "one by one" step — see `PLAN.md` §5.
+- ✅ **SQL schema → ERD** — real and deterministic (no LLM). Router detects SQL, `parse_sql` builds a
+  structured schema, and `layout.py` emits table boxes + bound relation arrows. Covered by `tests/`.
+- 🚧 **Freeform text → diagram** — still a hardcoded stub; becomes the first Claude tool-calling node.
+- 🚧 **Critic** — always "no issues" for now; vision-based self-correction lands in v1 (`PLAN.md` §5).
+
+## Test
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
