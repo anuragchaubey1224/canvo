@@ -17,6 +17,10 @@ export interface Shape {
   color?: string | null // tldraw color token
   parent_id?: string | null // container membership
   icon?: string | null // icon name (open set; falls back to the kind's default)
+  // Routed arrows: absolute orthogonal waypoints [x0,y0,...] + label chip anchor.
+  points?: number[] | null
+  label_x?: number | null
+  label_y?: number | null
 }
 
 export interface AgentAction {

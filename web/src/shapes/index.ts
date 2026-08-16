@@ -2,8 +2,9 @@
 // tldraw editor receives them all via `shapeUtils`. Adding a new shape = one Util
 // file + one entry — never a contract or engine change.
 
+import { ConnectorUtil } from './ConnectorUtil'
 import { NodeCardUtil } from './NodeCardUtil'
 import { PanelUtil } from './PanelUtil'
 
-export const customShapeUtils = [NodeCardUtil, PanelUtil]
-export { NodeCardUtil, PanelUtil }
+export const customShapeUtils = [NodeCardUtil, PanelUtil, ConnectorUtil]
+export { ConnectorUtil, NodeCardUtil, PanelUtil }

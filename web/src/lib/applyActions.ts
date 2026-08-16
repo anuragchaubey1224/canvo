@@ -12,6 +12,7 @@ import {
   type TLDefaultColorStyle,
   type TLGeoShape,
 } from 'tldraw'
+import type { ConnectorShape } from '../shapes/ConnectorUtil'
 import type { NodeCardShape } from '../shapes/NodeCardUtil'
 import type { PanelShape } from '../shapes/PanelUtil'
 import type { AgentAction, Shape } from './types'
@@ -47,7 +48,10 @@ export function makeApplier(editor: Editor) {
     if (!s) return
 
     if (s.type === 'arrow') {
-      createArrow(editor, s)
+      // Routed by our obstacle-avoiding router → authoritative connector polyline;
+      // unrouted arrows fall back to tldraw's bound elbow arrows.
+      if (s.points && s.points.length >= 4) createConnector(editor, s)
+      else createArrow(editor, s)
       return
     }
 
@@ -131,6 +135,29 @@ function createNode(editor: Editor, s: Shape) {
       size: 's',
       align: 'start',
       verticalAlign: 'start',
+    },
+  })
+}
+
+// Server-routed connector: waypoints come in absolute coords; the shape's origin is the
+// first point and props store the rest relative to it.
+function createConnector(editor: Editor, s: Shape) {
+  const flat = s.points as number[]
+  const ox = flat[0]
+  const oy = flat[1]
+  const rel: number[] = []
+  for (let i = 0; i + 1 < flat.length; i += 2) rel.push(flat[i] - ox, flat[i + 1] - oy)
+  editor.createShape<ConnectorShape>({
+    id: createShapeId(s.id),
+    type: 'connector',
+    x: ox,
+    y: oy,
+    props: {
+      points: rel,
+      accent: color(s, 'grey'),
+      label: s.text ?? '',
+      labelX: (s.label_x ?? ox) - ox,
+      labelY: (s.label_y ?? oy) - oy,
     },
   })
 }
