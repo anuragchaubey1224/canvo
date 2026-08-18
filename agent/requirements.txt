@@ -8,6 +8,7 @@ pyyaml>=6.0            # parse YAML OpenAPI specs
 # Persistence (SQLite for dev; Postgres via DATABASE_URL for prod)
 sqlalchemy[asyncio]>=2.0
 aiosqlite>=0.20
+alembic>=1.13          # schema migrations — the only thing allowed to change the schema
 
 # Auth — Argon2id password hashing (OWASP's current recommendation). Sessions are opaque
 # random tokens in httpOnly cookies, so there is no JWT library here on purpose.

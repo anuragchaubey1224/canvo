@@ -118,3 +118,32 @@ These protect the token bill *before* any auth exists (P0 exit criteria):
 What we deliberately do **not** build now: Kubernetes, Terraform, multi-region, Redis,
 service mesh, staging clusters. Each is an answer to a problem we don't have; the docs-first
 rule is to write down the trigger condition instead (see table above) and move on.
+
+## Database migrations
+
+Alembic owns the schema; nothing else is allowed to change it. `create_all` was fine while
+there was nothing to preserve, but it silently skips tables that already exist — so a new
+column on an existing install simply never appeared.
+
+```bash
+cd agent
+alembic revision --autogenerate -m "what changed"   # after editing app/db/models.py
+alembic upgrade head                                 # apply
+alembic downgrade -1                                 # step back
+alembic upgrade head --sql                           # review the SQL without running it
+```
+
+The URL always comes from `DATABASE_URL`, never from `alembic.ini`, so a stale config file
+can't point a migration at the wrong database.
+
+**On startup** the app runs `upgrade head` itself, which is right for the single instance we
+deploy. For more than one, set `RUN_MIGRATIONS=false` and run the upgrade once as a release
+step — otherwise two booting workers race for the migration lock.
+
+**Databases created before Alembic** (by the old `create_all`) have every table but no
+version row. Startup detects that and *stamps* them at head instead of trying to create
+what already exists, so an existing install keeps its data.
+
+`tests/test_migrations.py` asserts that after running the migrations, Alembic sees nothing
+left to autogenerate. That is what catches the classic mistake: a column added to a model,
+conjured locally by an old `create_all`, with no migration written for production.
