@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -26,6 +28,12 @@ from app.schema import AgentInput
 
 # Read agent/.env (API keys, provider config) before any request resolves LLM config.
 load_dotenv()
+
+# Shapes are staggered onto the canvas so a diagram appears to draw itself. It's a total
+# budget shared by the whole diagram — a per-shape constant makes big diagrams feel slow
+# for no reason, and the server is already done by then.
+_DRAW_BUDGET = 1.2  # seconds for the whole diagram
+_MAX_STAGGER = 0.06  # ceiling for a small one, so it still reads as drawing
 
 
 @asynccontextmanager
@@ -81,10 +89,17 @@ async def put_snapshot(session_id: str, body: SnapshotIn, db: AsyncSession = Dep
 async def agent_stream(payload: AgentInput):
     """Run the graph and stream the run as Server-Sent Events.
 
-    Consumes `graph.astream(...)` (our engine yields `(node, update)` per step) so the
-    Critic's self-correction is observable: each `critic` visit emits a `critique` event
-    live (found overlaps → widened spacing → clean), and once the graph settles we stream
-    the FINAL, corrected `AgentAction`s (a single clean draw) followed by a `done` summary.
+    Consumes `graph.astream(...)` (our engine yields `(node, update)` per step), so the
+    whole reasoning chain is observable as it happens:
+
+      `spec`     the Specifier's brief — what it understood, and what it had to assume
+      `plan`     the graph it produced + what the validator found/repaired
+      `critique` one per Critic visit (found overlaps → widened spacing → clean)
+      actions    the FINAL, self-corrected diagram, streamed as one clean draw
+      `done`     run summary
+
+    Streaming the spec and plan first is what makes the assumptions correctable: the user
+    reads what the model filled in before judging the picture it drew.
     """
 
     async def event_gen():
@@ -94,6 +109,7 @@ async def agent_stream(payload: AgentInput):
             "input_kind": payload.input_kind,
             "canvas_context": payload.canvas_context,
             "vision_enabled": (True if payload.enable_vision is None else payload.enable_vision),
+            "spec_enabled": (True if payload.enable_spec is None else payload.enable_spec),
             # BYOK / per-request model override — used for this request only, never persisted.
             "llm_override": (payload.llm.model_dump(exclude_none=True) if payload.llm else None),
             "layout_params": {"gap_scale": 1.0},
@@ -101,14 +117,53 @@ async def agent_stream(payload: AgentInput):
             "cost_usd": 0.0,
         }
 
-        latest_actions = []
+        started = time.perf_counter()
+        drawn = 0
         passes: list[dict] = []
+
+        async def draw(actions: list) -> AsyncIterator[str]:
+            """Stream one diagram. The stagger is a total budget, not a per-shape delay:
+            at a fixed 0.12s a 40-shape diagram spent five seconds dribbling onto a canvas
+            the server had already finished computing."""
+            delay = min(_MAX_STAGGER, _DRAW_BUDGET / max(1, len(actions)))
+            for action in actions:
+                yield f"data: {action.model_dump_json()}\n\n"
+                await asyncio.sleep(delay)
 
         async for node, out in graph.astream(state):
             if not out:
                 continue
-            if "actions" in out:
-                latest_actions = out["actions"]
+            # Reveal the diagram the moment the Drawer has one, rather than holding it
+            # back until the vision Critic has finished looking at it — that pass costs
+            # ~10s and the user was staring at an empty canvas for all of it. A refine
+            # replaces the drawing in place, announced by `redraw`.
+            if node == "drawer" and out.get("actions"):
+                if drawn:
+                    yield "event: redraw\ndata: {}\n\n"
+                async for chunk in draw(out["actions"]):
+                    yield chunk
+                drawn = len(out["actions"])
+            if node == "specifier" and out.get("spec"):
+                spec = out["spec"]
+                yield (
+                    "event: spec\ndata: "
+                    + json.dumps(
+                        {
+                            "title": spec.title,
+                            "diagram_type": spec.diagram_type,
+                            "components": spec.component_names,
+                            "flow_steps": len(spec.flow_steps),
+                            "phases": spec.phases,
+                            "assumptions": spec.assumptions,
+                            "raw": spec.raw,
+                        }
+                    )
+                    + "\n\n"
+                )
+                await asyncio.sleep(0.05)
+            if node == "planner" and out.get("plan_report"):
+                yield "event: plan\ndata: " + json.dumps(out["plan_report"]) + "\n\n"
+                await asyncio.sleep(0.05)
             if node == "critic" and out.get("critique"):
                 c = out["critique"]
                 passes.append(c)
@@ -130,11 +185,6 @@ async def agent_stream(payload: AgentInput):
                 )
                 await asyncio.sleep(0.05)
 
-        # Reveal the FINAL (self-corrected) diagram — one clean draw on the client.
-        for action in latest_actions:
-            yield f"data: {action.model_dump_json()}\n\n"
-            await asyncio.sleep(0.12)
-
         refined = len(passes) > 1
         yield (
             "event: done\ndata: "
@@ -142,8 +192,12 @@ async def agent_stream(payload: AgentInput):
                 {
                     "iterations": len(passes),
                     "refined": refined,
+                    "shapes": drawn,
                     "critic_source": passes[-1].get("source") if passes else None,
                     "final_clean": bool(passes) and not passes[-1].get("needs_refine", False),
+                    # Wall clock for the whole run. Surfaced so slow stages are visible
+                    # instead of guessed at — every stage here is one network round trip.
+                    "elapsed_s": round(time.perf_counter() - started, 2),
                 }
             )
             + "\n\n"
