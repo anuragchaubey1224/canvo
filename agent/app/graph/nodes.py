@@ -1,27 +1,42 @@
-"""LangGraph nodes: Router → Planner → Drawer → Critic.
+"""Graph nodes: Router → Specifier → Planner → Drawer → Critic.
 
 Real paths:
   - SQL DDL        → ERD            (parse_sql + build_erd_actions)  · deterministic
   - OpenAPI/Swagger → API surface   (parse_openapi + build_api_actions) · deterministic
-  - freeform text  → node/edge graph (LLM planner + build_graph_actions) · needs an LLM key
+  - freeform text  → spec → node/edge graph (Spec Writer + LLM planner + layout) · needs a key
 
-The Critic runs two passes: a deterministic geometry check (overlaps / dangling arrows)
-that reliably drives the bounded refine loop, and a best-effort vision pass (an LLM looks
-at a rendered PNG of the diagram) that catches the fuzzy, semantic layout problems.
+The freeform path is two LLM stages, not one: the **Specifier** turns a vague request into
+an explicit spec (components, flow steps, phases, and the assumptions it had to make), then
+the **Planner** maps that spec onto a graph. Between them sits a deterministic validator —
+structural slips are repaired in code, content gaps buy exactly one targeted repair call.
+
+The Critic then runs two passes: a deterministic geometry check (overlaps / dangling
+arrows) that reliably drives the bounded refine loop, and a best-effort vision pass (an
+LLM looks at a rendered PNG) that catches the fuzzy, semantic layout problems.
 """
 
 from __future__ import annotations
 
+import logging
+
 from app.graph.critic_vision import critique_image
 from app.graph.critique import analyze_geometry, geometry_summary
 from app.graph.layout import build_api_actions, build_erd_actions, build_graph_actions
-from app.graph.planner_llm import plan_from_text
+from app.graph.planner_llm import plan_from_text, refine_plan
 from app.graph.route import route_arrows
-from app.graph.state import AgentState, Critique
+from app.graph.spec_llm import spec_to_plan, write_spec
+from app.graph.state import AgentState, Critique, PlanReportDict
+from app.graph.validate_plan import repair_brief, sanitize, validate
 from app.guardrails import MAX_ITERATIONS
 from app.schema import AgentAction, Shape
 from app.tools.parse_openapi import looks_like_openapi, parse_openapi
 from app.tools.parse_sql import looks_like_sql, parse_sql
+
+logger = logging.getLogger(__name__)
+
+# Below this, a request is a label rather than a description — a spec pass would invent
+# more than it extracts, so we go straight to the planner.
+_MIN_SPEC_CHARS = 24
 
 # How much the Critic widens the layout when it finds crowding. > any box-height/row-pitch
 # ratio we hit in practice, so one refine usually clears the overlap; loop is capped anyway.
@@ -44,6 +59,23 @@ def router(state: AgentState) -> AgentState:
             return {"input_kind": "openapi", "parsed_api": api}
 
     return {"input_kind": forced or "text", "parsed": None}
+
+
+async def specifier(state: AgentState) -> AgentState:
+    """Freeform text → an explicit diagram spec. No-op on every other path.
+
+    SQL and OpenAPI inputs are already specifications, so they skip this entirely — the
+    stage exists purely to give vague prose the structure the planner needs.
+    """
+    if state.get("input_kind") != "text" or not state.get("spec_enabled", True):
+        return {}
+
+    text = (state.get("payload") or state.get("user_message") or "").strip()
+    if len(text) < _MIN_SPEC_CHARS:
+        return {}
+
+    spec = await write_spec(text, state.get("llm_override"))
+    return {"spec": spec} if spec else {}
 
 
 async def planner(state: AgentState) -> AgentState:
@@ -69,12 +101,54 @@ async def planner(state: AgentState) -> AgentState:
         }
 
     # freeform text → LLM planner (structured output). Falls through to a stub if no key.
+    spec = state.get("spec")
     text = (state.get("payload") or state.get("user_message") or "").strip()
-    if text:
-        llm_plan = await plan_from_text(text, state.get("llm_override"))
+    override = state.get("llm_override")
+    if text or spec:
+        llm_plan = await plan_from_text(text, override, spec=spec)
+        degraded = ""
+        if llm_plan is None and spec is not None:
+            # The planner call failed, but the spec already names every component, step and
+            # phase — draw that rather than the two-box stub. The user gets their diagram;
+            # the message says plainly that it came the cheap way.
+            llm_plan = spec_to_plan(spec)
+            if llm_plan is not None:
+                degraded = "planner call failed — drew the spec directly"
+                logger.warning("planner unavailable; built the diagram from the spec")
         if llm_plan:
+            fixes = sanitize(llm_plan)
+            report = validate(llm_plan, spec)
+            repaired = False
+
+            # One repair pass, and only for content the validator can name. We keep the
+            # result only if it strictly reduces the blocking issues, so a bad repair
+            # can never make the diagram worse than the first attempt.
+            if report.blocking:
+                candidate = await refine_plan(
+                    llm_plan, repair_brief(report.blocking), override, spec=spec
+                )
+                if candidate:
+                    candidate_fixes = sanitize(candidate)
+                    candidate_report = validate(candidate, spec)
+                    if len(candidate_report.blocking) < len(report.blocking):
+                        llm_plan, report, repaired = candidate, candidate_report, True
+                        fixes += candidate_fixes
+
+            plan_report: PlanReportDict = {
+                "nodes": len(llm_plan.nodes),
+                "edges": len(llm_plan.edges),
+                "groups": len(llm_plan.groups),
+                "issues": [
+                    {"kind": i.kind, "severity": i.severity, "message": i.message}
+                    for i in report.issues
+                ],
+                "fixes": fixes,
+                "repaired": repaired,
+                "degraded": degraded,
+            }
             return {
                 "llm_plan": llm_plan,
+                "plan_report": plan_report,
                 "plan": {
                     "nodes": [
                         {"id": n.id, "label": n.label, "kind": n.kind, "group": n.group}
@@ -82,7 +156,7 @@ async def planner(state: AgentState) -> AgentState:
                     ],
                     "edges": [{"from": e.source, "to": e.target} for e in llm_plan.edges],
                     "groups": [{"id": g.id, "label": g.label} for g in llm_plan.groups],
-                    "notes": "LLM plan from text",
+                    "notes": "LLM plan from spec" if spec else "LLM plan from text",
                 },
             }
 

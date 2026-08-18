@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TypedDict
 
 from app.graph.planner_llm import DiagramPlan
+from app.graph.spec_llm import DiagramSpec
 from app.schema import AgentAction, CanvasContext
 from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema
@@ -19,6 +20,18 @@ class Plan(TypedDict, total=False):
     edges: list[dict]
     groups: list[dict]  # only the freeform path sets this (LLM planner)
     notes: str
+
+
+class PlanReportDict(TypedDict, total=False):
+    """What the validator found, in a shape the SSE layer can hand to the client."""
+
+    nodes: int
+    edges: int
+    groups: int
+    issues: list[dict]  # [{kind, severity, message}]
+    fixes: list[str]  # deterministic repairs applied before validation
+    repaired: bool  # did an LLM repair pass run and improve the plan?
+    degraded: str  # non-empty when a stage failed and a fallback drew the diagram
 
 
 class Critique(TypedDict, total=False):
@@ -36,14 +49,18 @@ class AgentState(TypedDict, total=False):
     payload: str | None
     canvas_context: CanvasContext
     vision_enabled: bool  # run the vision Critic pass (needs an LLM key)
+    spec_enabled: bool  # run the Spec Writer stage before planning (needs an LLM key)
     llm_override: dict | None  # per-request BYOK/model override (never persisted)
     # set by the Router
     input_kind: str  # "text" | "sql" | "openapi" | "code"
     parsed: ParsedSchema | None
     parsed_api: ParsedAPI | None
+    # set by the Spec Writer (freeform text only)
+    spec: DiagramSpec | None
     llm_plan: DiagramPlan | None
     # produced by the graph
     plan: Plan | None
+    plan_report: PlanReportDict | None
     actions: list[AgentAction]
     critique: Critique | None
     layout_params: dict  # {"gap_scale": float} — the Critic tunes this to fix crowding
