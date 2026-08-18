@@ -47,6 +47,7 @@ export function ChatPanel({
   onNew,
   onSelect,
   onDelete,
+  onHome,
   onCollapse,
   onFocusDiagram,
 }: {
@@ -63,6 +64,7 @@ export function ChatPanel({
   onNew: () => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
+  onHome: () => void
   onCollapse: () => void
   onFocusDiagram: () => void
 }) {
@@ -78,6 +80,27 @@ export function ChatPanel({
   return (
     <aside className="rail">
       <header className="rail-head">
+        {/* Accented, unlike its neighbours: colour is what separates "leave this diagram"
+            from the grey buttons that act on it. A house, not a chevron — the header
+            already ends in a chevron for collapse, and two opposite chevrons read as a
+            pager rather than a way out. */}
+        <button
+          className="head-btn head-btn--home"
+          onClick={onHome}
+          title="All diagrams"
+          aria-label="All diagrams"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M2.5 7.2L8 2.5l5.5 4.7M4 6.6V13h8V6.6"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </svg>
+        </button>
         <h1 className="rail-title" title={title}>
           {empty ? 'New diagram' : title}
         </h1>

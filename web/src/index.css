@@ -16,10 +16,12 @@
   --border-strong: #2c333b;
   --border-soft: #171b20;
 
-  /* A wide gap between primary and secondary text is most of what "considered" looks
-     like; muted text that is nearly as bright as body text just reads as noise. */
+  /* Secondary text sits close enough to primary to stay comfortably readable. An earlier
+     pass pushed it much dimmer on the theory that a wide gap reads as "considered" — true
+     of a label or a status row, wrong for the chat, where most of what the agent says is
+     secondary and the whole panel ended up looking faded. */
   --text: #edeff2;
-  --text-muted: #8b939d;
+  --text-muted: #a3adb8;
   --text-faint: #5a626b;
 
   --accent: #7c8ff7;
@@ -78,7 +80,7 @@
     --border-strong: #cbd2d9;
     --border-soft: #eef1f4;
     --text: #14171b;
-    --text-muted: #5c656f;
+    --text-muted: #4d5760;
     --text-faint: #939ba4;
     --accent: #4a63dd;
     --accent-hover: #3d55c9;
@@ -144,7 +146,9 @@ button {
    hard-coding either one's width. */
 .app[data-collapsed="true"] {
   grid-template-columns: 1fr;
-  --canvas-inset: 48px; /* the reveal button's 32px + its 12px offset + breathing room */
+  /* two 32px buttons + the 6px between + the 12px offset + slack, so the zoom pill
+     clears the cluster instead of either one hard-coding the other's width */
+  --canvas-inset: 88px;
 }
 
 .stage {
@@ -168,37 +172,16 @@ button {
 }
 
 /* ---- Canvas chrome ---- */
-/* The way home, at the top-left: first position in the reading order and where every
-   product on the web puts its mark, so it needs no label to be found. It is the only
-   accented control on the canvas — everything else here is a grey tool — which is what
-   separates "leave" from "draw". Always mounted, so hiding the rail can't strand you. */
-.brand-home {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 310;
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  color: var(--accent);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  box-shadow: var(--lift), var(--shadow-sm);
-  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
-}
-
-.brand-home:hover {
-  background: var(--accent-weak);
-  border-color: var(--accent);
-}
-
-.reveal {
+.canvas-controls {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 5;
+  display: flex;
+  gap: 6px;
+}
+
+.reveal {
   display: grid;
   place-items: center;
   width: 32px;
@@ -214,6 +197,23 @@ button {
 .reveal:hover {
   color: var(--text);
   border-color: var(--border-strong);
+}
+
+/* Colour is what separates "leave this diagram" from the controls that act on it. */
+.reveal--home,
+.head-btn--home {
+  color: var(--accent);
+}
+
+.reveal--home:hover,
+.head-btn--home:hover {
+  color: var(--accent);
+  background: var(--accent-weak);
+  border-color: var(--accent);
+}
+
+.head-btn--home {
+  margin-right: 2px;
 }
 
 /* The tool strip lives in tldraw's own Toolbar slot, which is already centred inside the
@@ -295,7 +295,7 @@ button {
    reads as clipped. Float it like every other control on the canvas — same margin as the
    zoom pill, same surface, same border, all four corners rounded. */
 .tlui-menu-zone {
-  margin: 12px 0 0 64px; /* clears the brand mark */
+  margin: 12px 0 0 12px;
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -608,6 +608,7 @@ button {
 .welcome p {
   margin: 0 0 14px;
   font-size: var(--fs-md);
+  font-weight: 450;
   line-height: var(--lh-body);
   color: var(--text-muted);
   text-wrap: pretty;
@@ -657,6 +658,7 @@ button {
   max-width: 90%;
   padding: 10px 14px;
   font-size: var(--fs-lg);
+  font-weight: 450;
   line-height: var(--lh-body);
   letter-spacing: var(--tr-snug);
   background: var(--surface-3);
@@ -720,10 +722,16 @@ button {
   color: var(--text-faint);
 }
 
+/* The assistant's reply to a question. Since the answer intent draws nothing, this is the
+   whole turn — prose, not the status line it used to share a class with. */
 .turn-result {
   margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
+  font-size: var(--fs-lg);
+  font-weight: 450;
+  line-height: var(--lh-body);
+  letter-spacing: var(--tr-snug);
+  color: var(--text);
+  text-wrap: pretty;
 }
 
 .turn-live {
@@ -812,6 +820,7 @@ button {
 .step-summary {
   min-width: 0;
   font-size: var(--fs-sm);
+  font-weight: 450;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -851,6 +860,7 @@ button {
   flex-direction: column;
   gap: 4px;
   font-size: var(--fs-sm);
+  font-weight: 450;
   line-height: var(--lh-body);
   color: var(--text-muted);
   text-wrap: pretty;
