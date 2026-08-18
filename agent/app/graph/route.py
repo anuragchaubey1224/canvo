@@ -21,6 +21,7 @@ from __future__ import annotations
 import heapq
 from dataclasses import dataclass
 
+from app.graph.critique import LABEL_CLEAR_X, LABEL_CLEAR_Y
 from app.schema import AgentAction, Shape
 
 _CLEAR = 16.0  # min clearance between a route and a card
@@ -28,6 +29,13 @@ _PANEL_CLEAR = 6.0  # routes may hug panels closer than cards
 _TURN_COST = 60.0  # per bend — prefer straighter routes
 _SHARED_COST = 48.0  # per reused grid edge — spread parallel arrows apart
 _MARGIN = 48.0  # routable border around the whole diagram
+_SIDE_STEP = 20.0  # fan-out between arrows leaving the same edge of the same card
+_SIDE_INSET = 10.0  # keep a fanned anchor off the corner of its edge
+
+# Label placement: where along a segment a chip may sit, and how much segment it needs.
+_LABEL_STOPS = (0.5, 0.3, 0.7)
+_LABEL_MIN_SEGMENT = 40.0
+_LABEL_LONG_SEGMENT = 200.0
 
 
 @dataclass(frozen=True)
@@ -48,18 +56,42 @@ def _inflate(s: Shape, pad: float) -> _Rect:
     return _Rect(s.x - pad, s.y - pad, s.x + s.w + pad, s.y + s.h + pad)
 
 
-def _anchor(src: Shape, dst: Shape) -> tuple[float, float, float, float]:
-    """Facing-edge exit point + its projection one clearance step outside the shape."""
-    scx, scy = src.x + src.w / 2, src.y + src.h / 2
-    dcx, dcy = dst.x + dst.w / 2, dst.y + dst.h / 2
-    dx, dy = dcx - scx, dcy - scy
+def _side_of(src: Shape, dst: Shape) -> str:
+    """Which edge of `src` faces `dst`: r/l/b/t."""
+    dx = (dst.x + dst.w / 2) - (src.x + src.w / 2)
+    dy = (dst.y + dst.h / 2) - (src.y + src.h / 2)
     if abs(dx) >= abs(dy):
-        x = src.x + src.w if dx >= 0 else src.x
-        out = x + _CLEAR if dx >= 0 else x - _CLEAR
-        return (x, scy, out, scy)
-    y = src.y + src.h if dy >= 0 else src.y
-    out = y + _CLEAR if dy >= 0 else y - _CLEAR
-    return (scx, y, scx, out)
+        return "r" if dx >= 0 else "l"
+    return "b" if dy >= 0 else "t"
+
+
+def _fan(used: int) -> float:
+    """Offset for the n-th arrow on one edge: 0, +20, -20, +40, -40 …
+
+    Without this, two cards that reference each other both anchor at their edge midpoints,
+    so the forward and the return arrow trace the identical corridor — one line hiding the
+    other, with their labels stacked on top of each other.
+    """
+    if used <= 0:
+        return 0.0
+    step = ((used + 1) // 2) * _SIDE_STEP
+    return step if used % 2 else -step
+
+
+def _anchor(src: Shape, dst: Shape, offset: float = 0.0) -> tuple[float, float, float, float]:
+    """Facing-edge exit point + its projection one clearance step outside the shape."""
+    side = _side_of(src, dst)
+    if side in ("r", "l"):
+        x = src.x + src.w if side == "r" else src.x
+        out = x + _CLEAR if side == "r" else x - _CLEAR
+        lo, hi = src.y + _SIDE_INSET, src.y + src.h - _SIDE_INSET
+        y = min(max(src.y + src.h / 2 + offset, lo), hi)
+        return (x, y, out, y)
+    y = src.y + src.h if side == "b" else src.y
+    out = y + _CLEAR if side == "b" else y - _CLEAR
+    lo, hi = src.x + _SIDE_INSET, src.x + src.w - _SIDE_INSET
+    x = min(max(src.x + src.w / 2 + offset, lo), hi)
+    return (x, y, x, out)
 
 
 def _simplify(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -127,6 +159,45 @@ def _astar(
     return None
 
 
+def _place_labels(arrows: list[Shape]) -> None:
+    """Choose each routed arrow's label anchor so the chips clear one another.
+
+    Anchoring every label at the midpoint of its longest segment is the obvious rule and
+    the wrong one: two arrows running the same corridor pick mirror-image midpoints and
+    their chips land on top of each other — the Critic then reports a collision that
+    nothing ever fixes. Instead each arrow keeps a set of candidate stops along its own
+    route and takes the first one that clears every label already placed, falling back to
+    the roomiest segment when the route has nowhere clean left.
+    """
+    placed: list[tuple[float, float]] = []
+    for arrow in arrows:
+        if not arrow.text or not arrow.points:
+            continue
+        pts = list(zip(arrow.points[::2], arrow.points[1::2], strict=False))
+        best: tuple[tuple[int, float, float], tuple[float, float]] | None = None
+        for (ax, ay), (bx, by) in zip(pts, pts[1:], strict=False):
+            length = abs(bx - ax) + abs(by - ay)
+            if length < _LABEL_MIN_SEGMENT:
+                continue
+            for stop in _LABEL_STOPS:
+                if stop != 0.5 and length < _LABEL_LONG_SEGMENT:
+                    continue  # only a long segment has room for an off-centre stop
+                cx, cy = ax + (bx - ax) * stop, ay + (by - ay) * stop
+                clashes = sum(
+                    1
+                    for px, py in placed
+                    if abs(px - cx) < LABEL_CLEAR_X and abs(py - cy) < LABEL_CLEAR_Y
+                )
+                # fewest clashes wins, then the roomiest segment, then closest to centre
+                score = (-clashes, length, -abs(stop - 0.5))
+                if best is None or score > best[0]:
+                    best = (score, (cx, cy))
+        if best is None:
+            continue
+        arrow.label_x, arrow.label_y = best[1]
+        placed.append(best[1])
+
+
 def route_arrows(actions: list[AgentAction]) -> list[AgentAction]:
     """Attach obstacle-avoiding orthogonal waypoints to every box-to-box arrow."""
     boxes: dict[str, Shape] = {}
@@ -161,6 +232,7 @@ def route_arrows(actions: list[AgentAction]) -> list[AgentAction]:
     ys_set.update((min_y, max_y))
 
     used: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+    side_use: dict[tuple[str, str], int] = {}  # (shape id, edge) → arrows already on it
 
     for arrow in arrows:
         src = boxes.get(arrow.from_id or "")
@@ -168,8 +240,10 @@ def route_arrows(actions: list[AgentAction]) -> list[AgentAction]:
         if not src or not dst:
             continue
 
-        sx, sy, sox, soy = _anchor(src, dst)
-        tx_, ty_, tox, toy = _anchor(dst, src)
+        src_key = (src.id, _side_of(src, dst))
+        dst_key = (dst.id, _side_of(dst, src))
+        sx, sy, sox, soy = _anchor(src, dst, _fan(side_use.get(src_key, 0)))
+        tx_, ty_, tox, toy = _anchor(dst, src, _fan(side_use.get(dst_key, 0)))
 
         xs = sorted(xs_set | {sox, tox})
         ys = sorted(ys_set | {soy, toy})
@@ -197,18 +271,12 @@ def route_arrows(actions: list[AgentAction]) -> list[AgentAction]:
         for i in range(len(path) - 1):  # spread later arrows off this corridor
             a_, b_ = path[i], path[i + 1]
             used.add((min(a_, b_), max(a_, b_)))
+        side_use[src_key] = side_use.get(src_key, 0) + 1
+        side_use[dst_key] = side_use.get(dst_key, 0) + 1
 
         pts = [(sx, sy), *((xs[ix], ys[iy]) for ix, iy in path), (tx_, ty_)]
         pts = _simplify(pts)
         arrow.points = [c for p in pts for c in p]
 
-        # Label anchor: midpoint of the longest segment (labels get room to breathe).
-        if arrow.text:
-            longest = max(
-                zip(pts, pts[1:], strict=False),
-                key=lambda seg: abs(seg[1][0] - seg[0][0]) + abs(seg[1][1] - seg[0][1]),
-            )
-            arrow.label_x = (longest[0][0] + longest[1][0]) / 2
-            arrow.label_y = (longest[0][1] + longest[1][1]) / 2
-
+    _place_labels(arrows)
     return actions
