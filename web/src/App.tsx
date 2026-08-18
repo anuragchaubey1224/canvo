@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import AuthPage from './auth/AuthPage'
+import { ResetPage, VerifyPage } from './auth/LinkPage'
 import Dashboard from './dashboard/Dashboard'
 import Editor from './Editor'
 import { me, type Account } from './lib/auth'
@@ -35,6 +36,32 @@ export default function App() {
   }, [check])
 
   if (session.state === 'checking') return <div className="gate" aria-busy="true" />
+
+  // Emailed links resolve before the auth gate: a reset link is for someone who cannot
+  // sign in, and a verification link is usually opened in a different browser.
+  if (route.name === 'reset') {
+    return (
+      <ResetPage
+        token={route.token}
+        onSignedIn={(account) => {
+          setSession({ state: 'in', account })
+          navigate('/')
+        }}
+        onGiveUp={() => navigate('/')}
+      />
+    )
+  }
+  if (route.name === 'verify') {
+    return (
+      <VerifyPage
+        token={route.token}
+        onDone={() => {
+          void check() // pick up email_verified without a reload
+          navigate('/')
+        }}
+      />
+    )
+  }
 
   if (session.state === 'unreachable') {
     return (

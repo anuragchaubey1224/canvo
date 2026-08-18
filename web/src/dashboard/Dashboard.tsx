@@ -5,7 +5,7 @@
 // have is a worse first impression than four that all work.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { logout, type Account } from '../lib/auth'
+import { logout, resendVerification, type Account } from '../lib/auth'
 import {
   createConversation,
   deleteConversation,
@@ -28,6 +28,7 @@ export default function Dashboard({
   const [query, setQuery] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [offline, setOffline] = useState(false)
+  const [resent, setResent] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -116,6 +117,23 @@ export default function Dashboard({
       </aside>
 
       <main className="dash-main">
+        {/* Not a blocker — an unverified account works fine. It matters the day someone
+            needs to recover it, which is exactly the day it's too late to confirm. */}
+        {!account.email_verified && (
+          <div className="notice" role="status">
+            <span>
+              Confirm <strong>{account.email}</strong> so you can recover this account by
+              email.
+            </span>
+            <button
+              onClick={() => void resendVerification().then(() => setResent(true)).catch(() => setResent(true))}
+              disabled={resent}
+            >
+              {resent ? 'Link sent' : 'Resend link'}
+            </button>
+          </div>
+        )}
+
         <header className="dash-head">
           <h1>Your diagrams</h1>
           <div className="dash-search">

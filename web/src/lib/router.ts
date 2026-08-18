@@ -10,15 +10,23 @@ import { useCallback, useEffect, useState } from 'react'
 export type Route =
   | { name: 'dashboard' }
   | { name: 'editor'; id: string; start: string | null }
+  /** Reached from an emailed link, so these render whether or not anyone is signed in. */
+  | { name: 'reset'; token: string }
+  | { name: 'verify'; token: string }
 
 function parse(): Route {
-  const match = /^\/d\/([A-Za-z0-9_-]+)/.exec(window.location.pathname)
+  const path = window.location.pathname
+  const query = new URLSearchParams(window.location.search)
+  if (path.startsWith('/reset')) return { name: 'reset', token: query.get('token') ?? '' }
+  if (path.startsWith('/verify')) return { name: 'verify', token: query.get('token') ?? '' }
+
+  const match = /^\/d\/([A-Za-z0-9_-]+)/.exec(path)
   if (!match) return { name: 'dashboard' }
   return {
     name: 'editor',
     id: match[1],
     // How the diagram was started, so the editor can prefill the composer.
-    start: new URLSearchParams(window.location.search).get('start'),
+    start: query.get('start'),
   }
 }
 

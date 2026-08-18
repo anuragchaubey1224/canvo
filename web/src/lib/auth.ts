@@ -9,6 +9,9 @@ import { api, apiJson } from './api'
 export interface Account {
   id: string
   email: string
+  /** Whether the address has been confirmed. Nothing is gated on it yet; it's what makes
+   *  the inbox trustworthy for recovery. */
+  email_verified: boolean
   created_at: string
 }
 
@@ -52,4 +55,28 @@ export async function me(): Promise<Account | null> {
   if (res.status === 401) return null
   if (!res.ok) throw new Error(`auth check failed (${res.status})`)
   return (await res.json()) as Account
+}
+
+
+/** Ask for a reset link. Always resolves — the server answers the same way whether or not
+ *  the address has an account, and the UI must not undo that by behaving differently. */
+export async function requestReset(email: string): Promise<void> {
+  const res = await post('/auth/forgot', { email })
+  if (res.status === 429) throw new AuthError(await detail(res, 'Too many attempts.'))
+}
+
+export async function resetPassword(token: string, password: string): Promise<Account> {
+  const res = await post('/auth/reset', { token, password })
+  if (!res.ok) throw new AuthError(await detail(res, 'That link is no longer valid.'))
+  return (await res.json()) as Account
+}
+
+export async function verifyEmail(token: string): Promise<void> {
+  const res = await post('/auth/verify', { token })
+  if (!res.ok) throw new AuthError(await detail(res, 'That link is no longer valid.'))
+}
+
+export async function resendVerification(): Promise<void> {
+  const res = await post('/auth/verify/resend')
+  if (!res.ok) throw new AuthError(await detail(res, 'Could not send it just now.'))
 }

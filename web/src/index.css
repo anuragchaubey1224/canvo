@@ -1506,3 +1506,51 @@ button {
 .dash-signout:hover {
   color: var(--danger);
 }
+
+/* A neutral confirmation — used where the answer is deliberately the same whether or not
+   the address exists, so it must not look like either success or failure. */
+.gate-note {
+  margin: 0;
+  padding: 9px 11px;
+  font-size: var(--fs-sm);
+  font-weight: 450;
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+/* An advisory strip above the content — informative, not an error. */
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 11px 14px;
+  font-size: var(--fs-md);
+  font-weight: 450;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--warn);
+  border-radius: var(--r-sm);
+}
+
+.notice strong {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.notice button {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.notice button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
