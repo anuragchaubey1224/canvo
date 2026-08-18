@@ -1,6 +1,6 @@
 // Streams AgentActions from the Python agent-service over SSE.
 
-import { API } from './api'
+import { apiJson } from './api'
 import type { AgentAction, AgentInput, CritiqueEvent, PlanEvent, SpecEvent } from './types'
 
 export interface StreamHandlers {
@@ -16,11 +16,7 @@ export interface StreamHandlers {
 
 export async function streamAgent(input: AgentInput, handlers: StreamHandlers): Promise<void> {
   const { onAction, onSpec, onPlan, onCritique, onRedraw, onDone } = handlers
-  const res = await fetch(`${API}/agent/stream`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  })
+  const res = await apiJson('/agent/stream', 'POST', input)
   if (!res.ok || !res.body) throw new Error(`agent responded ${res.status}`)
 
   const reader = res.body.getReader()

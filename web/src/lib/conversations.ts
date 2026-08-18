@@ -1,14 +1,16 @@
 // Conversation history — a session is a chat *and* the canvas it produced, so reopening
 // one restores both the diagram and the trace of how it got there.
 
-import { API } from './api'
+import { api, apiJson } from './api'
 import type { CritiqueEvent, PlanEvent, SpecEvent } from './types'
 
 export interface Conversation {
   id: string
   title: string
+  created_at: string
   updated_at: string
   messages: number
+  has_canvas: boolean
 }
 
 /** The trace of one run. Stored with the assistant's turn and replayed into the same
@@ -46,30 +48,27 @@ async function json<T>(res: Response, what: string): Promise<T> {
 }
 
 export async function createConversation(): Promise<Conversation> {
-  const res = await fetch(`${API}/sessions`, { method: 'POST' })
+  const res = await api('/sessions', { method: 'POST' })
   const { id, title } = await json<{ id: string; title: string }>(res, 'new conversation')
   setActiveId(id)
-  return { id, title, updated_at: new Date().toISOString(), messages: 0 }
+  const now = new Date().toISOString()
+  return { id, title, created_at: now, updated_at: now, messages: 0, has_canvas: false }
 }
 
 export async function listConversations(): Promise<Conversation[]> {
-  return json<Conversation[]>(await fetch(`${API}/sessions`), 'history')
+  return json<Conversation[]>(await api('/sessions'), 'history')
 }
 
 export async function renameConversation(id: string, title: string): Promise<void> {
-  await fetch(`${API}/sessions/${id}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title }),
-  })
+  await apiJson(`/sessions/${id}`, 'PATCH', { title })
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await fetch(`${API}/sessions/${id}`, { method: 'DELETE' })
+  await api(`/sessions/${id}`, { method: 'DELETE' })
 }
 
 export async function fetchMessages(id: string): Promise<ChatMessage[]> {
-  const res = await fetch(`${API}/sessions/${id}/messages`)
+  const res = await api(`/sessions/${id}/messages`)
   if (!res.ok) return []
   return (await res.json()) as ChatMessage[]
 }
@@ -80,11 +79,7 @@ export async function appendMessage(
   text: string,
   activity?: RunActivity,
 ): Promise<void> {
-  await fetch(`${API}/sessions/${id}/messages`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ role, text, activity: activity ?? null }),
-  })
+  await apiJson(`/sessions/${id}/messages`, 'POST', { role, text, activity: activity ?? null })
 }
 
 /** "just now" / "12m" / "3h" / "5d" — a history list needs recency, not timestamps. */

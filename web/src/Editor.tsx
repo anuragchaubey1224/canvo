@@ -3,9 +3,9 @@
 // picking one from history restores both.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Tldraw, type Editor, type TLComponents } from 'tldraw'
+import { Tldraw, type Editor as TldrawEditor, type TLComponents } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { VerticalToolbar } from './canvas/VerticalToolbar'
+import { Toolbar } from './canvas/Toolbar'
 import { ZoomMenu } from './canvas/ZoomMenu'
 import { ChatPanel } from './chat/ChatPanel'
 import {
@@ -28,16 +28,67 @@ import { customShapeUtils } from './shapes'
 
 // Defined once, outside the component: a new object each render would remount the editor.
 const CANVAS_COMPONENTS: TLComponents = {
-  // The tool rail carries the style button too — styling belongs next to the tools whose
+  // The strip carries the style button too — styling belongs next to the tools whose
   // output it styles, which leaves the top-right corner to zoom alone.
-  Toolbar: VerticalToolbar,
+  Toolbar: Toolbar,
   StylePanel: null,
   SharePanel: ZoomMenu, // tldraw renders this slot top-right
   NavigationPanel: null, // its zoom + minimap moved into the zoom pill
 }
 
-export default function App() {
-  const editorRef = useRef<Editor | null>(null)
+// Openers from the dashboard: what the user said they wanted to make, so the composer is
+// already useful the moment the canvas appears.
+const STARTERS: Record<string, string> = {
+  sql: `CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP
+);
+
+CREATE TABLE orders (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  total NUMERIC(10,2) NOT NULL,
+  status VARCHAR(32)
+);`,
+  openapi: `openapi: 3.0.0
+info:
+  title: Shop API
+paths:
+  /users:
+    get: { tags: [users], summary: List users }
+    post: { tags: [users], summary: Create user }
+  /orders:
+    get: { tags: [orders] }
+    post: { tags: [orders] }`,
+}
+
+
+/** Fit the diagram to whatever room the canvas currently has.
+ *
+ * `zoomToFit()` alone was putting diagrams half off-screen: it measures against the
+ * viewport bounds tldraw last recorded, and those are stale for a frame after the rail
+ * collapses or a diagram loads, so it fits to the *old* column width. Re-measuring the
+ * container first makes the result deterministic, and an explicit inset keeps the frame
+ * off the chrome instead of flush against it.
+ */
+function fitToCanvas(editor: TldrawEditor | null) {
+  if (!editor) return
+  editor.updateViewportScreenBounds(editor.getContainer())
+  const bounds = editor.getCurrentPageBounds()
+  if (bounds) editor.zoomToBounds(bounds, { inset: 56, animation: { duration: 180 } })
+}
+
+export default function Editor({
+  sessionId,
+  start,
+  onNavigate,
+}: {
+  sessionId: string
+  start: string | null
+  onNavigate: (to: string) => void
+}) {
+  const editorRef = useRef<TldrawEditor | null>(null)
   const [ready, setReady] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActive] = useState<string | null>(null)
@@ -46,7 +97,7 @@ export default function App() {
   const [live, setLive] = useState<RunActivity | null>(null)
   const [liveStatus, setLiveStatus] = useState('')
   const [busy, setBusy] = useState(false)
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(() => (start ? (STARTERS[start] ?? '') : ''))
   const [collapsed, setCollapsed] = useState(false)
 
   const refreshHistory = useCallback(async () => {
@@ -81,30 +132,22 @@ export default function App() {
     if (snapshot) {
       try {
         editor.loadSnapshot(JSON.parse(snapshot))
-        editor.zoomToFit()
+        fitToCanvas(editor)
       } catch {
         // a snapshot written by an older shape schema — open this one on a clean canvas
       }
     }
   }, [])
 
+  // A new diagram is a new URL, not a swap in place — so the browser's back button and a
+  // shared link both mean what they look like they mean.
   const startNew = useCallback(async () => {
-    const editor = editorRef.current
     const created = await createConversation()
-    setActive(created.id)
-    setTitle(created.title)
-    setMessages([])
-    setLive(null)
-    setDraft('')
-    if (editor) {
-      const existing = Array.from(editor.getCurrentPageShapeIds())
-      if (existing.length) editor.deleteShapes(existing)
-    }
-    void refreshHistory()
-  }, [refreshHistory])
+    onNavigate(`/d/${created.id}`)
+  }, [onNavigate])
 
   const onMount = useCallback(
-    (editor: Editor) => {
+    (editor: TldrawEditor) => {
       editorRef.current = editor
       // Dark canvas is the product's default look; users can still flip it from the menu.
       editor.user.updateUserPreferences({ colorScheme: 'dark' })
@@ -121,25 +164,18 @@ export default function App() {
         { scope: 'document' },
       )
 
-      void (async () => {
-        try {
-          const history = await listConversations()
-          setConversations(history)
-          const stored = getActiveId()
-          const target = history.find((c) => c.id === stored) ?? history[0]
-          if (target) await openConversation(target.id)
-          else await startNew()
-        } catch {
-          // offline / agent down — the canvas still works, nothing persists
-        } finally {
-          setReady(true)
-        }
-      })()
+      void openConversation(sessionId).finally(() => setReady(true))
 
       return () => unlisten()
     },
-    [openConversation, startNew],
+    [openConversation, sessionId],
   )
+
+  // The URL is the source of truth: navigating between diagrams reloads this one in place.
+  useEffect(() => {
+    if (ready) void openConversation(sessionId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
 
   const onSend = useCallback(async () => {
     const editor = editorRef.current
@@ -215,7 +251,7 @@ export default function App() {
           },
         },
       )
-      if (drawn) editor.zoomToFit()
+      if (drawn) fitToCanvas(editor)
     } catch (e) {
       push({ error: `${(e as Error).message}. Is the agent running on :8000?` })
     } finally {
@@ -238,18 +274,21 @@ export default function App() {
       await deleteConversation(id)
       const rest = await listConversations().catch(() => [])
       setConversations(rest)
-      if (id === activeId) {
-        if (rest[0]) await openConversation(rest[0].id)
-        else await startNew()
-      }
+      // Deleting the diagram you're looking at leaves nothing to look at — go home rather
+      // than silently swapping in whichever one happened to be next.
+      if (id === activeId) onNavigate('/')
     },
-    [activeId, openConversation, startNew],
+    [activeId, onNavigate],
   )
 
   // Re-fit when the rail opens or closes, so the diagram uses whatever space it now has.
+  // Two frames, not a timer: the first lets the grid column resize, the second lets
+  // tldraw's own resize observer settle before we measure it.
   useEffect(() => {
-    const t = window.setTimeout(() => editorRef.current?.zoomToFit(), 220)
-    return () => window.clearTimeout(t)
+    const outer = requestAnimationFrame(() =>
+      requestAnimationFrame(() => fitToCanvas(editorRef.current)),
+    )
+    return () => cancelAnimationFrame(outer)
   }, [collapsed])
 
   return (
@@ -286,10 +325,11 @@ export default function App() {
           conversations={conversations}
           activeId={activeId}
           onNew={startNew}
-          onSelect={openConversation}
+          onSelect={(id) => onNavigate(`/d/${id}`)}
           onDelete={onDelete}
+          onHome={() => onNavigate('/')}
           onCollapse={() => setCollapsed(true)}
-          onFocusDiagram={() => editorRef.current?.zoomToFit()}
+          onFocusDiagram={() => fitToCanvas(editorRef.current)}
         />
       )}
     </div>
