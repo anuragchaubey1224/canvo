@@ -62,11 +62,73 @@ class SnapshotIn(BaseModel):
     snapshot: str
 
 
+class TitleIn(BaseModel):
+    title: str
+
+
+class MessageIn(BaseModel):
+    role: str  # "user" | "assistant"
+    text: str = ""
+    activity: dict | None = None  # the run trace: spec, plan, critique passes
+
+
 @app.post("/sessions")
 async def create_session(db: AsyncSession = Depends(get_db)):
     """Create a session; the client stores its id and autosaves snapshots to it."""
     s = await repo.create_session(db)
     return {"id": s.id, "title": s.title}
+
+
+@app.get("/sessions")
+async def list_sessions(db: AsyncSession = Depends(get_db)):
+    """Conversation history — a session is a chat and the canvas it produced."""
+    return [
+        {
+            "id": s.id,
+            "title": s.title,
+            "updated_at": s.updated_at.isoformat(),
+            "messages": n,
+        }
+        for s, n in await repo.list_sessions(db)
+    ]
+
+
+@app.patch("/sessions/{session_id}")
+async def rename_session(session_id: str, body: TitleIn, db: AsyncSession = Depends(get_db)):
+    s = await repo.rename_session(db, session_id, body.title)
+    if s is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"id": s.id, "title": s.title}
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    if not await repo.delete_session(db, session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True}
+
+
+@app.get("/sessions/{session_id}/messages")
+async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "text": m.text,
+            "activity": json.loads(m.activity) if m.activity else None,
+            "created_at": m.created_at.isoformat(),
+        }
+        for m in await repo.list_messages(db, session_id)
+    ]
+
+
+@app.post("/sessions/{session_id}/messages")
+async def post_message(session_id: str, body: MessageIn, db: AsyncSession = Depends(get_db)):
+    activity = json.dumps(body.activity) if body.activity is not None else None
+    m = await repo.add_message(db, session_id, body.role, body.text, activity)
+    if m is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"id": m.id, "created_at": m.created_at.isoformat()}
 
 
 @app.get("/sessions/{session_id}/snapshot")
