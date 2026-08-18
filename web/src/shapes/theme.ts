@@ -10,6 +10,10 @@ export type ShapeTheme = {
   iconBg: (accent: string) => string
   panelFill: (accent: string) => string
   panelBorder: (accent: string) => string
+  // The outer frame reads as the page the diagram is printed on: no accent, a hairline
+  // border, and a fill barely distinct from the canvas so the tinted panels stay dominant.
+  frameFill: string
+  frameBorder: string
 }
 
 // Accent ramp keyed by the contract's tldraw-style color tokens. Calm, not neon.
@@ -60,6 +64,8 @@ export function shapeTheme(dark: boolean): ShapeTheme {
       iconBg: (a) => withAlpha(a, 0.14),
       panelFill: (a) => withAlpha(a, 0.07),
       panelBorder: (a) => withAlpha(a, 0.45),
+      frameFill: 'rgba(255,255,255,0.02)',
+      frameBorder: '#2A3138',
     }
   }
   return {
@@ -70,5 +76,7 @@ export function shapeTheme(dark: boolean): ShapeTheme {
     iconBg: (a) => withAlpha(a, 0.12),
     panelFill: (a) => withAlpha(a, 0.06),
     panelBorder: (a) => withAlpha(a, 0.5),
+    frameFill: 'rgba(0,0,0,0.015)',
+    frameBorder: '#DDE2E7',
   }
 }

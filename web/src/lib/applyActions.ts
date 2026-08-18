@@ -13,6 +13,7 @@ import {
   type TLGeoShape,
 } from 'tldraw'
 import type { ConnectorShape } from '../shapes/ConnectorUtil'
+import type { FrameShape } from '../shapes/FrameUtil'
 import type { NodeCardShape } from '../shapes/NodeCardUtil'
 import type { PanelShape } from '../shapes/PanelUtil'
 import type { AgentAction, Shape } from './types'
@@ -55,6 +56,11 @@ export function makeApplier(editor: Editor) {
       return
     }
 
+    if (s.type === 'frame') {
+      createFrame(editor, s)
+      return
+    }
+
     if (s.type === 'container') {
       createPanel(editor, s)
       return
@@ -67,6 +73,18 @@ export function makeApplier(editor: Editor) {
 
     createNode(editor, s)
   }
+}
+
+// The outer frame: one titled box around the whole composition. Streamed first, so it
+// sits under everything else.
+function createFrame(editor: Editor, s: Shape) {
+  editor.createShape<FrameShape>({
+    id: createShapeId(s.id),
+    type: 'frame',
+    x: s.x,
+    y: s.y,
+    props: { w: s.w || 960, h: s.h || 640, title: s.text ?? '' },
+  })
 }
 
 // A group panel (Eraser-style swimlane): our custom 'panel' shape. Created before its

@@ -5,7 +5,14 @@ import { makeApplier } from './lib/applyActions'
 import { customShapeUtils } from './shapes'
 import { fetchSnapshot, getOrCreateSessionId, saveSnapshot } from './lib/session'
 import { streamAgent } from './lib/transport'
-import type { CritiqueEvent } from './lib/types'
+import type { CritiqueEvent, PlanEvent, SpecEvent } from './lib/types'
+
+const SAMPLE_WORKFLOW = `Draw a JWT authentication workflow: the user submits login \
+credentials from the client app, the auth service validates them against the user database, \
+on success it issues an access token and a refresh token, the client stores the tokens and \
+calls the API gateway with the access token, the gateway verifies the token signature and \
+forwards valid requests to backend services, expired tokens go through the refresh flow to \
+get a new access token, and invalid tokens return an unauthorized error to the client.`
 
 const SAMPLE_SQL = `CREATE TABLE users (
   id SERIAL PRIMARY KEY,
@@ -54,6 +61,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState('autosave on')
   const [passes, setPasses] = useState<CritiqueEvent[]>([])
+  const [spec, setSpec] = useState<SpecEvent | null>(null)
+  const [plan, setPlan] = useState<PlanEvent | null>(null)
 
   const kind = useMemo(() => detectKind(input), [input])
 
@@ -102,7 +111,9 @@ export default function App() {
     setBusy(true)
     setIsError(false)
     setPasses([])
-    setStatus('Thinking…')
+    setSpec(null)
+    setPlan(null)
+    setStatus(kind === 'text' ? 'Writing the spec…' : 'Thinking…')
 
     const ids = Array.from(editor.getCurrentPageShapeIds())
     if (ids.length) editor.deleteShapes(ids)
@@ -113,25 +124,42 @@ export default function App() {
     try {
       await streamAgent(
         { message: '', payload: input, session_id: sessionIdRef.current ?? 'web' },
-        (action) => {
-          apply(action)
-          n += 1
-          setStatus(`Drawing… (${n})`)
-        },
-        () =>
-          setStatus(
-            n
-              ? `Done — ${n} shapes${refined ? ' · self-corrected' : ''}.`
-              : 'Nothing to draw for this input.',
-          ),
-        (c) => {
-          setPasses((prev) => [...prev, c])
-          if (c.needs_refine) refined = true
-          setStatus(
-            c.needs_refine
-              ? `Critic: found ${c.issue_count} issue${c.issue_count !== 1 ? 's' : ''} — adjusting…`
-              : 'Critic: layout clean ✓',
-          )
+        {
+          onAction: (action) => {
+            apply(action)
+            n += 1
+            setStatus(`Drawing… (${n})`)
+          },
+          onRedraw: () => {
+            // The Critic asked for a refine; what follows replaces what's on screen.
+            const drawn = Array.from(editor.getCurrentPageShapeIds())
+            if (drawn.length) editor.deleteShapes(drawn)
+            n = 0
+            refined = true
+          },
+          onSpec: (s) => {
+            setSpec(s)
+            setStatus(`Spec ready — ${s.components.length} components · planning…`)
+          },
+          onPlan: (p) => {
+            setPlan(p)
+            setStatus(`Plan: ${p.nodes} nodes · ${p.edges} edges — laying out…`)
+          },
+          onCritique: (c) => {
+            setPasses((prev) => [...prev, c])
+            if (c.needs_refine) refined = true
+            setStatus(
+              c.needs_refine
+                ? `Critic: found ${c.issue_count} issue${c.issue_count !== 1 ? 's' : ''} — adjusting…`
+                : 'Critic: layout clean ✓',
+            )
+          },
+          onDone: () =>
+            setStatus(
+              n
+                ? `Done — ${n} shapes${refined ? ' · self-corrected' : ''}.`
+                : 'Nothing to draw for this input.',
+            ),
         },
       )
       if (n) editor.zoomToFit()
@@ -141,7 +169,7 @@ export default function App() {
     } finally {
       setBusy(false)
     }
-  }, [input, busy])
+  }, [input, busy, kind])
 
   return (
     <div className="app">
@@ -165,6 +193,9 @@ export default function App() {
           />
           <div className="samples">
             <span className="samples-label">Samples</span>
+            <button className="chip" onClick={() => setInput(SAMPLE_WORKFLOW)}>
+              Workflow
+            </button>
             <button className="chip" onClick={() => setInput(SAMPLE_SQL)}>
               SQL
             </button>
@@ -182,6 +213,58 @@ export default function App() {
         <p className="status" data-error={isError} aria-live="polite">
           {status}
         </p>
+
+        {spec && (
+          <div className="spec-card" aria-live="polite">
+            <div className="critic-head">
+              <span className="critic-title">Spec</span>
+              <span className="critic-sub">
+                {spec.diagram_type ?? 'diagram'} · {spec.components.length} components ·{' '}
+                {spec.flow_steps} steps
+              </span>
+            </div>
+            {spec.title && <p className="spec-title">{spec.title}</p>}
+            {spec.phases.length > 0 && (
+              <ul className="spec-phases">
+                {spec.phases.map((phase) => (
+                  <li key={phase}>{phase}</li>
+                ))}
+              </ul>
+            )}
+            {spec.assumptions.length > 0 && (
+              <details className="spec-assumptions">
+                <summary>
+                  {spec.assumptions.length} assumption
+                  {spec.assumptions.length !== 1 ? 's' : ''} — filled in for you
+                </summary>
+                <ul>
+                  {spec.assumptions.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {plan && (
+              <p className="spec-plan">
+                {plan.nodes} nodes · {plan.edges} edges · {plan.groups} groups
+                {plan.repaired && <span className="spec-flag"> repaired</span>}
+                {plan.fixes.length > 0 && (
+                  <span className="spec-flag"> {plan.fixes.length} auto-fixes</span>
+                )}
+              </p>
+            )}
+            {plan?.degraded && <p className="spec-degraded">{plan.degraded}</p>}
+            {plan?.issues.length ? (
+              <ul className="spec-issues">
+                {plan.issues.map((issue) => (
+                  <li key={issue.kind + issue.message} data-severity={issue.severity}>
+                    {issue.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
 
         {passes.length > 0 && (
           <div className="critic" aria-live="polite">
