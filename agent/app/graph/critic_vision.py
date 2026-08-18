@@ -40,7 +40,7 @@ _SYSTEM = (
 
 async def critique_image(actions: list[AgentAction], *, context: str = "") -> VisionCritique | None:
     """Render the diagram and ask a vision model to critique its layout. None on no-key/failure."""
-    cfg = resolve_config()
+    cfg = resolve_config(role="vision")
     if not cfg.api_key:
         return None
 
