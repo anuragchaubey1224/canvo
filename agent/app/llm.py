@@ -25,13 +25,40 @@ class LLMConfig:
     model: str = "claude-sonnet-5"
     api_key: str | None = None
     base_url: str | None = None  # for openrouter / custom gateways
+    # Latency budget. Retries are deliberately low: every stage degrades gracefully (the
+    # planner falls back to the direct path, the vision critic to geometry alone), so a
+    # slow provider should cost one wasted wait, not three stacked ones.
+    timeout: int = 60
+    max_retries: int = 1
+    max_tokens: int = 4096
 
 
-def resolve_config(user_override: dict | None = None) -> LLMConfig:
+# Per-stage ceilings.
+#
+# `max_tokens` is NOT a length hint — on a thinking model (Gemini 3.x, o-series, DeepSeek
+# R1) the reasoning tokens are billed against this same budget before a single visible
+# token appears. Caps sized to the *visible* answer therefore truncate mid-output: a
+# 1400-token cap cut the spec off after FLOW (losing PHASES and ASSUMPTIONS), and a
+# 3000-token cap cut the planner's tool call in half, which surfaces as a parse error and
+# a fallback diagram. Keep these generous; they exist to stop a runaway, not to save
+# money, and latency is governed by `timeout`.
+_ROLE_LIMITS: dict[str, dict[str, int]] = {
+    "spec": {"timeout": 60, "max_tokens": 4000},
+    "plan": {"timeout": 90, "max_tokens": 8000},
+    "vision": {"timeout": 45, "max_tokens": 2000, "max_retries": 0},
+}
+
+
+def resolve_config(user_override: dict | None = None, *, role: str | None = None) -> LLMConfig:
     """Merge server defaults (env) with an optional per-request BYOK override.
 
     User-supplied values win, so a request can fully redirect to the user's
     own provider + key without touching server config.
+
+    `role` names the pipeline stage ("spec", "plan", "vision"). A stage can be pointed at
+    a cheaper model via `LLM_<ROLE>_MODEL` — the Spec Writer does extraction, not spatial
+    reasoning, so it runs fine on a small model while the planner stays on the good one.
+    A BYOK model always wins: the user asked for that model explicitly.
     """
     cfg = LLMConfig(
         provider=os.getenv("LLM_PROVIDER", "anthropic"),
@@ -39,6 +66,10 @@ def resolve_config(user_override: dict | None = None) -> LLMConfig:
         api_key=os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENROUTER_API_KEY"),
         base_url=os.getenv("LLM_BASE_URL") or None,
     )
+    if role:
+        cfg.model = os.getenv(f"LLM_{role.upper()}_MODEL") or cfg.model
+        for field, value in _ROLE_LIMITS.get(role, {}).items():
+            setattr(cfg, field, value)
     if user_override:
         cfg.provider = user_override.get("provider") or cfg.provider
         cfg.model = user_override.get("model") or cfg.model
@@ -62,9 +93,9 @@ def build_chat_model(cfg: LLMConfig):
         kwargs: dict[str, Any] = {
             "model": cfg.model,
             "api_key": cfg.api_key,
-            "max_tokens": 4096,
-            "timeout": 45,
-            "max_retries": 2,
+            "max_tokens": cfg.max_tokens,
+            "timeout": cfg.timeout,
+            "max_retries": cfg.max_retries,
         }
         return ChatAnthropic(**kwargs)
 
@@ -75,8 +106,8 @@ def build_chat_model(cfg: LLMConfig):
         "model": cfg.model,
         "api_key": cfg.api_key,
         "base_url": cfg.base_url or "https://openrouter.ai/api/v1",
-        "max_tokens": 4096,
-        "timeout": 45,
-        "max_retries": 2,
+        "max_tokens": cfg.max_tokens,
+        "timeout": cfg.timeout,
+        "max_retries": cfg.max_retries,
     }
     return ChatOpenAI(**kwargs)

@@ -3,7 +3,7 @@
 
 export interface Shape {
   id: string
-  type: string // "geo" | "arrow" | "container" | ...
+  type: string // "geo" | "arrow" | "container" | "frame" | ...
   x: number
   y: number
   w?: number
@@ -35,6 +35,41 @@ export interface AgentInput {
   input_kind?: string | null
   session_id?: string
   enable_vision?: boolean
+  enable_spec?: boolean
+}
+
+// Emitted once by the Spec Writer (`event: spec`) — what the service understood from a
+// vague request, and everything it had to assume to complete the picture. Showing the
+// assumptions is the point: invented detail stays visible instead of silently landing
+// in the diagram.
+export interface SpecEvent {
+  title: string | null
+  diagram_type: string | null
+  components: string[]
+  flow_steps: number
+  phases: string[]
+  assumptions: string[]
+  raw: string
+}
+
+export interface PlanIssue {
+  kind: string // "single_branch" | "missing_components" | "thin_coverage" | ...
+  severity: string // "error" | "warning"
+  message: string
+}
+
+// Emitted once by the Planner (`event: plan`) — the graph it produced plus what the
+// deterministic validator repaired or flagged.
+export interface PlanEvent {
+  nodes: number
+  edges: number
+  groups: number
+  issues: PlanIssue[]
+  fixes: string[]
+  repaired: boolean
+  // Non-empty when a stage failed and something cheaper drew the diagram. Surfaced rather
+  // than hidden: a silent fallback looks identical to success until you read the picture.
+  degraded: string
 }
 
 export interface CritiqueIssue {

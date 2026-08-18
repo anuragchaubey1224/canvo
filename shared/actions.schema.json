@@ -8,7 +8,7 @@
       "required": ["id", "type", "x", "y"],
       "properties": {
         "id": { "type": "string" },
-        "type": { "type": "string", "description": "geo | arrow | container | text | ..." },
+        "type": { "type": "string", "description": "geo | arrow | container | frame | text | ..." },
         "x": { "type": "number" },
         "y": { "type": "number" },
         "w": { "type": "number", "default": 0 },

@@ -14,12 +14,42 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# The only colour names the client can render (tldraw's palette). Part of the contract,
+# mirrored by COLOR_TOKENS in web/src/lib/applyActions.ts. The client silently greys out
+# anything else, so the server validates here instead of trusting a planner's invention —
+# one model returning "#3B82F6" or "blue-500" is enough to drain a whole diagram of colour.
+COLOR_TOKENS = frozenset(
+    {
+        "black",
+        "grey",
+        "light-violet",
+        "violet",
+        "blue",
+        "light-blue",
+        "yellow",
+        "orange",
+        "green",
+        "light-green",
+        "light-red",
+        "red",
+        "white",
+    }
+)
+
+
+def color_token(value: str | None) -> str | None:
+    """Normalise a planner-supplied colour to a renderable token, or None if it isn't one."""
+    if not value:
+        return None
+    token = value.strip().lower().replace("_", "-").replace(" ", "-")
+    return token if token in COLOR_TOKENS else None
+
 
 class Shape(BaseModel):
     """A minimal shape the client knows how to render/apply."""
 
     id: str
-    type: str  # "geo" | "arrow" | "container" | "text" | ...
+    type: str  # "geo" | "arrow" | "container" | "frame" | "text" | ...
     x: float
     y: float
     w: float = 0
@@ -77,6 +107,9 @@ class AgentInput(BaseModel):
     payload: str | None = None
     # Critic: run the vision self-correction pass. None → server default (on when a key exists).
     enable_vision: bool | None = None
+    # Spec Writer: expand a vague request into an explicit spec before planning.
+    # None → server default (on). Off = one LLM call instead of two, thinner diagrams.
+    enable_spec: bool | None = None
 
 
 class AgentAction(BaseModel):
