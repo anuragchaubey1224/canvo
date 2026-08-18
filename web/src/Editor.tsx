@@ -72,11 +72,15 @@ paths:
  * container first makes the result deterministic, and an explicit inset keeps the frame
  * off the chrome instead of flush against it.
  */
-function fitToCanvas(editor: TldrawEditor | null) {
+function fitToCanvas(editor: TldrawEditor | null, opts: { onlyIfOffscreen?: boolean } = {}) {
   if (!editor) return
   editor.updateViewportScreenBounds(editor.getContainer())
   const bounds = editor.getCurrentPageBounds()
-  if (bounds) editor.zoomToBounds(bounds, { inset: 56, animation: { duration: 180 } })
+  if (!bounds) return
+  // After an edit, re-framing everything throws away the view the user chose. Only step
+  // in when the change actually happened somewhere they can't see.
+  if (opts.onlyIfOffscreen && editor.getViewportPageBounds().contains(bounds)) return
+  editor.zoomToBounds(bounds, { inset: 56, animation: { duration: 180 } })
 }
 
 export default function Editor({
@@ -198,13 +202,12 @@ export default function Editor({
     void appendMessage(id, 'user', prompt)
     if (title === 'Untitled') setTitle(prompt.slice(0, 60))
 
-    const existing = Array.from(editor.getCurrentPageShapeIds())
-    if (existing.length) editor.deleteShapes(existing)
-
-    const apply = makeApplier(editor)
+    const applier = makeApplier(editor)
     // Accumulated outside state so the final persisted trace can't miss a late event.
     const trace: RunActivity = { passes: [] }
     let drawn = 0
+    let edited = false
+    let answer = ''
     setLive({ passes: [] })
     setLiveStatus('Writing the spec…')
 
@@ -218,7 +221,7 @@ export default function Editor({
         { message: '', payload: prompt, session_id: id },
         {
           onAction: (action) => {
-            apply(action)
+            applier.apply(action)
             drawn += 1
             push({ shapes: drawn })
             setLiveStatus(`Drawing… ${drawn}`)
@@ -233,11 +236,18 @@ export default function Editor({
           },
           onPlan: (plan) => {
             push({ plan })
-            setLiveStatus('Laying it out…')
+            edited = plan.intent === 'edit'
+            setLiveStatus(edited ? 'Applying the changes…' : 'Laying it out…')
+          },
+          onAnswer: (reply) => {
+            answer = reply
+            setLiveStatus('')
           },
           onRedraw: () => {
-            const shapes = Array.from(editor.getCurrentPageShapeIds())
-            if (shapes.length) editor.deleteShapes(shapes)
+            // A Critic refine re-emits the whole diagram at wider spacing. Start a fresh
+            // reconciliation pass rather than clearing — the shapes are about to be
+            // updated in place, and clearing would flash the canvas empty.
+            applier.restart()
             drawn = 0
           },
           onCritique: (pass) => {
@@ -251,21 +261,35 @@ export default function Editor({
           },
         },
       )
-      if (drawn) fitToCanvas(editor)
+      // Only reconcile when this run actually drew. A run that drew nothing — a question,
+      // or a stream that ended early — has an empty "seen" set, and sweeping against that
+      // would delete the whole diagram.
+      if (drawn) {
+        applier.finish()
+        // A new diagram gets framed; an edit keeps the view the user was working in.
+        fitToCanvas(editor, { onlyIfOffscreen: edited })
+      }
     } catch (e) {
       push({ error: `${(e as Error).message}. Is the agent running on :8000?` })
     } finally {
       const result = trace.error
         ? 'Generation failed.'
-        : `${drawn} shape${drawn === 1 ? '' : 's'} drawn.`
+        : answer || `${drawn} shape${drawn === 1 ? '' : 's'} drawn.`
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, role: 'assistant', text: result, activity: trace, created_at: '' },
+        {
+          id: Date.now() + 1,
+          role: 'assistant',
+          text: result,
+          // A question has no run to trace — the reply is the whole turn.
+          activity: answer ? null : trace,
+          created_at: '',
+        },
       ])
       setLive(null)
       setLiveStatus('')
       setBusy(false)
-      void appendMessage(id, 'assistant', result, trace).then(refreshHistory)
+      void appendMessage(id, 'assistant', result, answer ? undefined : trace).then(refreshHistory)
     }
   }, [activeId, busy, draft, refreshHistory, title])
 
@@ -296,46 +320,46 @@ export default function Editor({
       <main className="stage">
         <Tldraw onMount={onMount} shapeUtils={customShapeUtils} components={CANVAS_COMPONENTS} />
         {!ready && <div className="boot" aria-hidden="true" />}
-        {/* The way home is the brand mark at the top-left, where every product on the
-            web puts it — first thing in the reading order, and unaffected by whether the
-            rail is open. It is also the only accented control on the canvas, so it reads
-            as the way out rather than as one more grey tool. */}
-        <button
-          className="brand-home"
-          onClick={() => onNavigate('/')}
-          title="All diagrams"
-          aria-label="All diagrams"
-        >
-          <svg width="19" height="19" viewBox="0 0 20 20" aria-hidden="true">
-            <path
-              d="M3 3.5v13h13M7 12.5V8M11 12.5V4.5M15 12.5v-3"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          </svg>
-        </button>
-
+        {/* Exactly one way home is on screen at a time: in the rail header while it's
+            open, here while it isn't. Both live in regions that are always in view —
+            the canvas's far-left corner turned out not to be one of them. */}
         {collapsed && (
-          <button
-            className="reveal"
-            onClick={() => setCollapsed(false)}
-            title="Show panel"
-            aria-label="Show panel"
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-              <path
-                d="M10 4L6 8l4 4"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-          </button>
+          <div className="canvas-controls">
+            <button
+              className="reveal reveal--home"
+              onClick={() => onNavigate('/')}
+              title="All diagrams"
+              aria-label="All diagrams"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M2.5 7.2L8 2.5l5.5 4.7M4 6.6V13h8V6.6"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
+            <button
+              className="reveal"
+              onClick={() => setCollapsed(false)}
+              title="Show panel"
+              aria-label="Show panel"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M10 4L6 8l4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+            </button>
+          </div>
         )}
       </main>
 
@@ -354,6 +378,7 @@ export default function Editor({
           onNew={startNew}
           onSelect={(id) => onNavigate(`/d/${id}`)}
           onDelete={onDelete}
+          onHome={() => onNavigate('/')}
           onCollapse={() => setCollapsed(true)}
           onFocusDiagram={() => fitToCanvas(editorRef.current)}
         />

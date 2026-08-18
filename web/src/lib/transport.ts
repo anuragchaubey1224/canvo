@@ -8,6 +8,8 @@ export interface StreamHandlers {
   onSpec?: (spec: SpecEvent) => void
   onPlan?: (plan: PlanEvent) => void
   onCritique?: (critique: CritiqueEvent) => void
+  /** The prompt was a question: the service answers and draws nothing. */
+  onAnswer?: (reply: string) => void
   // The service draws as soon as the Drawer has a diagram, so a Critic refine arrives as
   // a replacement: clear the canvas, the actions that follow are the corrected version.
   onRedraw?: () => void
@@ -15,7 +17,7 @@ export interface StreamHandlers {
 }
 
 export async function streamAgent(input: AgentInput, handlers: StreamHandlers): Promise<void> {
-  const { onAction, onSpec, onPlan, onCritique, onRedraw, onDone } = handlers
+  const { onAction, onSpec, onPlan, onCritique, onRedraw, onAnswer, onDone } = handlers
   const res = await apiJson('/agent/stream', 'POST', input)
   if (!res.ok || !res.body) throw new Error(`agent responded ${res.status}`)
 
@@ -44,6 +46,7 @@ export async function streamAgent(input: AgentInput, handlers: StreamHandlers): 
       const parsed = safeParse(dataLines.join('\n'))
       if (eventType === 'done') onDone?.(parsed)
       else if (eventType === 'redraw') onRedraw?.()
+      else if (eventType === 'answer') onAnswer?.((parsed as { reply: string }).reply)
       else if (eventType === 'spec') onSpec?.(parsed as SpecEvent)
       else if (eventType === 'plan') onPlan?.(parsed as PlanEvent)
       else if (eventType === 'critique') onCritique?.(parsed as CritiqueEvent)

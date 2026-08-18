@@ -11,11 +11,8 @@ import {
   type Editor,
   type TLDefaultColorStyle,
   type TLGeoShape,
+  type TLShapePartial,
 } from 'tldraw'
-import type { ConnectorShape } from '../shapes/ConnectorUtil'
-import type { FrameShape } from '../shapes/FrameUtil'
-import type { NodeCardShape } from '../shapes/NodeCardUtil'
-import type { PanelShape } from '../shapes/PanelUtil'
 import type { AgentAction, Shape } from './types'
 
 type GeoStyle = TLGeoShape['props']['geo']
@@ -38,91 +35,130 @@ function color(s: Shape, fallback: TLDefaultColorStyle = 'black'): TLDefaultColo
   return s.color && COLOR_TOKENS.has(s.color) ? (s.color as TLDefaultColorStyle) : fallback
 }
 
-export function makeApplier(editor: Editor) {
-  return (action: AgentAction) => {
-    if (action.type === 'delete' && action.shape_id) {
-      editor.deleteShape(createShapeId(action.shape_id))
-      return
-    }
+/** Marks the shapes we own. Anything the user drew themselves has no such stamp, so a
+ *  regeneration can sweep away its own leftovers without touching their work. */
+const OURS = { canvo: true }
 
-    const s = action.shape
-    if (!s) return
+function isOurs(shape: { meta?: Record<string, unknown> }): boolean {
+  return shape.meta?.canvo === true
+}
 
-    if (s.type === 'arrow') {
-      // Routed by our obstacle-avoiding router → authoritative connector polyline;
-      // unrouted arrows fall back to tldraw's bound elbow arrows.
-      if (s.points && s.points.length >= 4) createConnector(editor, s)
-      else createArrow(editor, s)
-      return
-    }
+export interface Applier {
+  /** Create or update one shape from a streamed action. */
+  apply(action: AgentAction): void
+  /** Start a fresh pass (a Critic refine re-emits the whole diagram). */
+  restart(): void
+  /** Remove the shapes we drew last time that this run didn't re-emit. */
+  finish(): void
+}
 
-    if (s.type === 'frame') {
-      createFrame(editor, s)
-      return
-    }
+/** A reconciler, not a painter.
+ *
+ * The old applier only created, so every run had to clear the canvas first — which threw
+ * away the camera, the selection, and anything the user had drawn themselves. Now each
+ * incoming shape updates the one already there when the id matches (our ids are
+ * deterministic, so a node that survives an edit keeps its identity) and only what has
+ * genuinely gone is deleted. An edit that touches two nodes now moves two nodes. */
+export function makeApplier(editor: Editor): Applier {
+  const seen = new Set<string>()
 
-    if (s.type === 'container') {
-      createPanel(editor, s)
-      return
-    }
+  return {
+    restart() {
+      seen.clear()
+    },
 
-    if (s.type === 'text') {
-      createText(editor, s)
-      return
-    }
+    apply(action: AgentAction) {
+      if (action.type === 'delete' && action.shape_id) {
+        editor.deleteShape(createShapeId(action.shape_id))
+        return
+      }
 
-    createNode(editor, s)
+      const s = action.shape
+      if (!s) return
+      seen.add(s.id)
+
+      const id = createShapeId(s.id)
+      const existing = editor.getShape(id)
+      // Each builder returns a well-formed shape for its own type, but TypeScript can't
+      // correlate `type` with `props` across the union inside tldraw's overloads — hence
+      // the one cast, rather than seven near-identical branches.
+      const built = { id, ...build(s) } as TLShapePartial
+
+      if (existing && existing.type === built.type) {
+        // Same shape, new geometry or props — patch it, so tldraw animates the move and
+        // the user's selection and camera survive.
+        editor.updateShape(built)
+        return
+      }
+      if (existing) editor.deleteShape(id) // the kind changed; a box became a cylinder
+      editor.createShape({ ...built, meta: OURS })
+
+      // Arrows carry bindings, which only make sense on a freshly created arrow.
+      if (s.type === 'arrow' && !(s.points && s.points.length >= 4)) bindArrow(editor, s, id)
+    },
+
+    finish() {
+      const stale = editor
+        .getCurrentPageShapes()
+        .filter((shape) => isOurs(shape) && !seen.has(String(shape.id).replace(/^shape:/, '')))
+        .map((shape) => shape.id)
+      if (stale.length) editor.deleteShapes(stale)
+    },
   }
 }
 
+/** One streamed shape → the tldraw shape to create or patch. */
+function build(s: Shape) {
+  if (s.type === 'arrow') {
+    return s.points && s.points.length >= 4 ? connector(s) : arrow(s)
+  }
+  if (s.type === 'frame') return frame(s)
+  if (s.type === 'container') return panel(s)
+  if (s.type === 'text') return text(s)
+  return node(s)
+}
+
+// --- builders: one streamed shape → the tldraw shape to create or patch ------------------
+
 // The outer frame: one titled box around the whole composition. Streamed first, so it
 // sits under everything else.
-function createFrame(editor: Editor, s: Shape) {
-  editor.createShape<FrameShape>({
-    id: createShapeId(s.id),
-    type: 'frame',
+function frame(s: Shape) {
+  return {
+    type: 'frame' as const,
     x: s.x,
     y: s.y,
     props: { w: s.w || 960, h: s.h || 640, title: s.text ?? '' },
-  })
+  }
 }
 
-// A group panel (Eraser-style swimlane): our custom 'panel' shape. Created before its
-// members (stream order), so it naturally sits under them.
-function createPanel(editor: Editor, s: Shape) {
-  editor.createShape<PanelShape>({
-    id: createShapeId(s.id),
-    type: 'panel',
+// A group panel (Eraser-style swimlane). Created before its members (stream order), so it
+// naturally sits under them.
+function panel(s: Shape) {
+  return {
+    type: 'panel' as const,
     x: s.x,
     y: s.y,
-    props: {
-      w: s.w || 480,
-      h: s.h || 320,
-      title: s.text ?? '',
-      accent: color(s, 'grey'),
-    },
-  })
+    props: { w: s.w || 480, h: s.h || 320, title: s.text ?? '', accent: color(s, 'grey') },
+  }
 }
 
-// Loose text — the diagram title heading.
-function createText(editor: Editor, s: Shape) {
-  editor.createShape({
-    id: createShapeId(s.id),
-    type: 'text',
+// Loose text — a standalone heading.
+function text(s: Shape) {
+  return {
+    type: 'text' as const,
     x: s.x,
     y: s.y,
-    props: { richText: toRichText(s.text ?? ''), size: 'l' },
-  })
+    props: { richText: toRichText(s.text ?? ''), size: 'l' as const },
+  }
 }
 
-function createNode(editor: Editor, s: Shape) {
-  // Semantic nodes render as our custom node-card (icon + title + subtitle; diamond
-  // for decisions, cylinder for datastores). Kindless boxes (ERD tables, endpoint
-  // lists) keep the plain top-left multi-line geo layout.
+function node(s: Shape) {
+  // Semantic nodes render as our custom node-card (icon + title + subtitle; diamond for
+  // decisions, cylinder for datastores). Kindless boxes (ERD tables, endpoint lists) keep
+  // the plain top-left multi-line geo layout.
   if (s.kind || s.subtitle) {
-    editor.createShape<NodeCardShape>({
-      id: createShapeId(s.id),
-      type: 'node-card',
+    return {
+      type: 'node-card' as const,
       x: s.x,
       y: s.y,
       props: {
@@ -134,13 +170,10 @@ function createNode(editor: Editor, s: Shape) {
         accent: color(s, 'grey'),
         icon: s.icon ?? '',
       },
-    })
-    return
+    }
   }
-
-  editor.createShape({
-    id: createShapeId(s.id),
-    type: 'geo',
+  return {
+    type: 'geo' as const,
     x: s.x,
     y: s.y,
     props: {
@@ -148,26 +181,25 @@ function createNode(editor: Editor, s: Shape) {
       w: s.w || 160,
       h: s.h || 80,
       color: color(s),
-      fill: 'none',
+      fill: 'none' as const,
       richText: toRichText(s.text ?? ''),
-      size: 's',
-      align: 'start',
-      verticalAlign: 'start',
+      size: 's' as const,
+      align: 'start' as const,
+      verticalAlign: 'start' as const,
     },
-  })
+  }
 }
 
-// Server-routed connector: waypoints come in absolute coords; the shape's origin is the
+// Server-routed connector: waypoints arrive in absolute coords; the shape's origin is the
 // first point and props store the rest relative to it.
-function createConnector(editor: Editor, s: Shape) {
+function connector(s: Shape) {
   const flat = s.points as number[]
   const ox = flat[0]
   const oy = flat[1]
   const rel: number[] = []
   for (let i = 0; i + 1 < flat.length; i += 2) rel.push(flat[i] - ox, flat[i + 1] - oy)
-  editor.createShape<ConnectorShape>({
-    id: createShapeId(s.id),
-    type: 'connector',
+  return {
+    type: 'connector' as const,
     x: ox,
     y: oy,
     props: {
@@ -177,44 +209,43 @@ function createConnector(editor: Editor, s: Shape) {
       labelX: (s.label_x ?? ox) - ox,
       labelY: (s.label_y ?? oy) - oy,
     },
-  })
+  }
 }
 
-// Arrows use REAL tldraw bindings (not fixed points): tldraw routes them to the shape
-// edges itself and keeps them attached when the user drags nodes around. Elbow kind
-// gives the orthogonal routing Eraser-style diagrams read with. We pin each terminal
-// to the FACING edge of its shape (precise anchors) so elbows leave/enter from the
-// side that points at the other node — center-anchored routing let long arrows cut
-// straight through neighboring cards.
+// Arrows the router couldn't solve fall back to tldraw's own elbow routing, bound to both
+// shapes so they stay attached when a card is dragged.
 let labelSlot = 0 // stagger label positions so adjacent edge labels don't overlap
 
-function createArrow(editor: Editor, s: Shape) {
-  const arrowId = createShapeId(s.id)
+function arrow(s: Shape) {
   const hasLabel = Boolean(s.text)
-  editor.createShape({
-    id: arrowId,
-    type: 'arrow',
+  return {
+    type: 'arrow' as const,
     x: s.x,
     y: s.y,
     props: {
-      kind: 'elbow',
+      kind: 'elbow' as const,
       start: { x: 0, y: 0 },
       end: { x: 120, y: 0 },
       richText: toRichText(s.text ?? ''),
-      size: 's',
+      size: 's' as const,
       scale: 0.8, // compact labels/arrowheads — matched to the dense card layout
       color: color(s),
       labelColor: color(s),
       labelPosition: hasLabel ? [0.5, 0.35, 0.65][labelSlot++ % 3] : 0.5,
     },
-  })
+  }
+}
 
+/** Bindings for a fallback elbow arrow. Only meaningful on a freshly created one — an
+ *  existing arrow already carries its bindings, and tldraw re-routes it itself. */
+function bindArrow(editor: Editor, s: Shape, arrowId: ReturnType<typeof createShapeId>) {
   const fromId = s.from_id ? createShapeId(s.from_id) : undefined
   const toId = s.to_id ? createShapeId(s.to_id) : undefined
   const a = fromId && editor.getShape(fromId) ? editor.getShapePageBounds(fromId) : undefined
   const b = toId && editor.getShape(toId) ? editor.getShapePageBounds(toId) : undefined
 
-  // Facing-edge anchors: pick the side of each shape that points toward the other.
+  // Facing-edge anchors: pick the side of each shape that points toward the other, so an
+  // elbow leaves from the side facing its destination instead of cutting across cards.
   let startAnchor = { x: 0.5, y: 0.5 }
   let endAnchor = { x: 0.5, y: 0.5 }
   const precise = Boolean(a && b)
@@ -240,12 +271,7 @@ function createArrow(editor: Editor, s: Shape) {
       type: 'arrow',
       fromId: arrowId,
       toId: targetId,
-      props: {
-        terminal,
-        normalizedAnchor: anchor,
-        isExact: false,
-        isPrecise: precise,
-      },
+      props: { terminal, normalizedAnchor: anchor, isExact: false, isPrecise: precise },
     })
   }
   bind('start', fromId, startAnchor)
