@@ -13,7 +13,18 @@ import { useEditor, useValue } from 'tldraw'
 
 const ROWS: { id: string; label: string; kbd: string; run: (e: ReturnType<typeof useEditor>) => void }[] = [
   { id: 'hand', label: 'Hand', kbd: 'Space', run: (e) => e.setCurrentTool('hand') },
-  { id: 'fit', label: 'Zoom to fit', kbd: '⇧1', run: (e) => e.zoomToFit() },
+  {
+    id: 'fit',
+    label: 'Zoom to fit',
+    kbd: '⇧1',
+    // Re-measure before fitting: tldraw's recorded viewport bounds lag a frame behind the
+    // canvas column, and fitting to the old width lands the diagram half off-screen.
+    run: (e) => {
+      e.updateViewportScreenBounds(e.getContainer())
+      const bounds = e.getCurrentPageBounds()
+      if (bounds) e.zoomToBounds(bounds, { inset: 56, animation: { duration: 180 } })
+    },
+  },
   { id: 'selection', label: 'Zoom to selection', kbd: '⇧2', run: (e) => e.zoomToSelection() },
   { id: 'reset', label: 'Zoom to 100%', kbd: '⌘0', run: (e) => e.resetZoom() },
 ]

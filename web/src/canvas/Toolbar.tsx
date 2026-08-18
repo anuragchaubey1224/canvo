@@ -1,14 +1,11 @@
-// The tool strip, moved to the left edge and stood upright.
+// The tool strip: horizontal, along the bottom of the canvas.
 //
-// tldraw's default toolbar floats across the bottom-centre of the canvas, which on a wide
-// diagram is exactly where the diagram wants to be. On the left edge it costs a 44px
-// gutter and never crosses the drawing.
-//
-// Rendered through a portal so its position doesn't depend on tldraw's internal layout
-// slots — a portal keeps React context, so the editor hooks below still work normally.
+// It sits in tldraw's own Toolbar slot rather than being positioned by hand, because that
+// slot is already centred inside the canvas column — so the strip stays centred on the
+// drawing whether the chat rail is open or collapsed, with no width arithmetic on our side.
+// What we add is the grouping, the style button, and one flyout for everything else.
 
 import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import {
   TldrawUiButton,
   TldrawUiButtonIcon,
@@ -48,15 +45,12 @@ function ToolButton({ tool }: { tool: TLUiToolItem }) {
   )
 }
 
-/** Which flyout is showing. One at a time — two panels off a 44px rail would collide. */
+/** Which flyout is showing. One at a time — two panels above a 44px strip would collide. */
 type Panel = 'more' | 'style' | null
 
-export function VerticalToolbar() {
+export function Toolbar() {
   const tools = useTools()
-  const [host, setHost] = useState<HTMLElement | null>(null)
   const [panel, setPanel] = useState<Panel>(null)
-
-  useEffect(() => setHost(document.body), [])
 
   useEffect(() => {
     if (!panel) return
@@ -67,8 +61,6 @@ export function VerticalToolbar() {
 
   const toggle = (next: Exclude<Panel, null>) => setPanel((p) => (p === next ? null : next))
 
-  if (!host) return null
-
   const groups = GROUPS.map((ids) => ids.map((id) => tools[id]).filter(Boolean)).filter(
     (group) => group.length > 0,
   )
@@ -78,8 +70,8 @@ export function VerticalToolbar() {
   const shown = new Set(GROUPS.flat())
   const rest = Object.values(tools).filter((t) => !shown.has(t.id))
 
-  return createPortal(
-    <div className="tool-rail" role="toolbar" aria-label="Tools" aria-orientation="vertical">
+  return (
+    <div className="tool-bar" role="toolbar" aria-label="Tools">
       {groups.map((group, i) => (
         <div className="tool-group" key={group[0].id}>
           {i > 0 && <span className="tool-sep" aria-hidden="true" />}
@@ -100,7 +92,7 @@ export function VerticalToolbar() {
             aria-expanded={panel === 'more'}
             onClick={() => toggle('more')}
           >
-            <TldrawUiButtonIcon icon={panel === 'more' ? 'chevron-left' : 'chevron-right'} />
+            <TldrawUiButtonIcon icon={panel === 'more' ? 'chevron-down' : 'chevron-up'} />
           </TldrawUiButton>
           {panel === 'more' && (
             <div className="tool-popover tool-popover--grid" role="group" aria-label="More tools">
@@ -113,7 +105,6 @@ export function VerticalToolbar() {
       )}
 
       <StylePanelToggle open={panel === 'style'} onToggle={() => toggle('style')} />
-    </div>,
-    host,
+    </div>
   )
 }
