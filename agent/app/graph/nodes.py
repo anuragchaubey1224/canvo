@@ -92,6 +92,10 @@ async def editor(state: AgentState) -> AgentState:
         # The request is about something else. Drop the context and let the create path
         # run, rather than forcing unrelated ops onto an unrelated diagram.
         return {"base_plan": None}
+    if edit.intent == "answer":
+        # A question, not an instruction. Redrawing an unchanged diagram would throw away
+        # the user's camera and reveal nothing, so the graph stops here.
+        return {"answered": True, "reply": edit.reply.strip() or "No change needed."}
 
     result = apply_ops(base, edit.ops)
     fixes = sanitize(result.plan)

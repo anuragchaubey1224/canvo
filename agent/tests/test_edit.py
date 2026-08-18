@@ -187,7 +187,68 @@ def test_an_edit_that_would_empty_the_diagram_is_refused(monkeypatch):
     assert any("whole diagram" in r for r in out["plan_report"]["rejected"])
 
 
+def test_a_question_is_answered_and_nothing_is_drawn(monkeypatch):
+    out = _run_editor(
+        monkeypatch,
+        DiagramEdit(intent="answer", reply="The cache is read before the database."),
+    )
+    assert out == {"answered": True, "reply": "The cache is read before the database."}
+    assert "llm_plan" not in out, "an answer must not hand the drawer anything"
+
+
+def test_an_empty_answer_still_says_something(monkeypatch):
+    out = _run_editor(monkeypatch, DiagramEdit(intent="answer", reply="   "))
+    assert out["reply"], "a blank reply would look like the app hung"
+
+
 def test_an_edit_with_no_changes_keeps_the_diagram(monkeypatch):
     out = _run_editor(monkeypatch, DiagramEdit(intent="edit", ops=[], summary="nothing to change"))
     assert out["plan_report"]["applied"] == []
     assert out["plan_report"]["nodes"] == 4
+
+
+# --- graph wiring -------------------------------------------------------------------------
+
+
+def test_the_graph_stops_at_an_answer_and_draws_nothing(monkeypatch):
+    from app.graph.build import build_graph
+
+    async def fake_propose(*_args, **_kwargs):
+        return DiagramEdit(intent="answer", reply="Because the gateway checks it first.")
+
+    monkeypatch.setattr(nodes, "propose_edit", fake_propose)
+    state = {
+        "input_kind": "text",
+        "payload": "why does the gateway sit before the service?",
+        "base_plan": _plan(),
+        "iterations": 0,
+    }
+    visited = [name for name, _ in asyncio.run(_walk(build_graph(), state))]
+    assert visited == ["router", "editor"], f"drew anyway: {visited}"
+    assert not state.get("actions")
+    assert state["reply"].startswith("Because")
+
+
+async def _walk(graph, state):
+    return [step async for step in graph.astream(state)]
+
+
+def test_an_edit_walks_all_the_way_to_the_critic(monkeypatch):
+    from app.graph.build import build_graph
+
+    async def fake_propose(*_args, **_kwargs):
+        return DiagramEdit(intent="edit", ops=[EditOp(op="update_node", id="db", kind="datastore")])
+
+    monkeypatch.setattr(nodes, "propose_edit", fake_propose)
+    state = {
+        "input_kind": "text",
+        "payload": "make the database a cylinder",
+        "base_plan": _plan(),
+        "vision_enabled": False,
+        "layout_params": {"gap_scale": 1.0},
+        "iterations": 0,
+    }
+    visited = [name for name, _ in asyncio.run(_walk(build_graph(), state))]
+    assert visited[:2] == ["router", "editor"]
+    assert "drawer" in visited and "critic" in visited
+    assert state["actions"], "an edit still redraws through the normal pipeline"

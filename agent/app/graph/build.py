@@ -2,8 +2,9 @@
 
 Runs on Canvo's own `engine.Graph` (see engine.py) — no orchestration framework.
 
-    router → editor → specifier → planner → drawer → critic ─┬─(refine)→ drawer
-                                                             └─(else)──→ END
+    router → editor ─┬─(answered)──────────────────────────────────────────────→ END
+                     └─→ specifier → planner → drawer → critic ─┬─(refine)→ drawer
+                                                                └─(else)──→ END
 
 The Editor runs first and only matters for a follow-up: given the diagram already on
 screen, it turns the prompt into changes and hands the planner a finished plan, which the
@@ -20,6 +21,11 @@ from app.graph import nodes
 from app.graph.engine import END, Graph
 from app.graph.state import AgentState
 from app.guardrails import MAX_ITERATIONS
+
+
+def _after_edit(state: AgentState) -> str:
+    """A question is answered in the chat; there is nothing to draw."""
+    return "answered" if state.get("answered") else "draw"
 
 
 def _should_refine(state: AgentState) -> str:
@@ -42,7 +48,7 @@ def build_graph() -> Graph:
 
     g.set_entry("router")
     g.add_edge("router", "editor")
-    g.add_edge("editor", "specifier")
+    g.add_conditional("editor", _after_edit, {"answered": END, "draw": "specifier"})
     g.add_edge("specifier", "planner")
     g.add_edge("planner", "drawer")
     g.add_edge("drawer", "critic")

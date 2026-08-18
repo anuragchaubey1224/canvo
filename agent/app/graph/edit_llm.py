@@ -79,9 +79,10 @@ class EditOp(BaseModel):
 
 
 class DiagramEdit(BaseModel):
-    intent: Literal["edit", "replace"] = Field(
+    intent: Literal["edit", "replace", "answer"] = Field(
         description=(
-            "'edit' to change the diagram shown; 'replace' only when the request is about "
+            "'edit' to change the diagram shown; 'answer' when the user asked a question "
+            "about it and nothing should change; 'replace' only when the request is about "
             "something else entirely and a new diagram should be drawn from scratch"
         )
     )
@@ -90,6 +91,10 @@ class DiagramEdit(BaseModel):
         description="the changes, in order. Empty means nothing needs to change.",
     )
     summary: str = Field(default="", description="one short line describing what changed")
+    reply: str = Field(
+        default="",
+        description="for intent='answer': the answer itself, two or three sentences",
+    )
 
 
 _SYSTEM = """You are editing a diagram that is already on the user's screen. You are given \
@@ -102,8 +107,11 @@ Rules:
 - To turn boxes into cylinders/databases, that is `update_node` with kind='datastore'.
   Diamonds are kind='decision'. Both are chosen by kind, never by drawing anything.
 - A new node usually needs a `group` too, or it will float outside every phase.
-- If the request needs nothing changed (it's a question, or already true), return
-  intent='edit' with an empty ops list.
+- If the request is already true of the diagram, return intent='edit' with no ops.
+
+Use intent='answer' when the user is ASKING about the diagram rather than asking you to \
+change it ("why is X there?", "what happens when the token expires?"). Put the answer in \
+`reply`, two or three sentences, grounded in the graph above. Change nothing.
 
 Set intent='replace' ONLY when the request is about a different subject altogether — a new
 diagram, not a change to this one. Rewording, adding, removing, restyling, regrouping and \

@@ -62,6 +62,9 @@ class AgentState(TypedDict, total=False):
     parsed_api: ParsedAPI | None
     # the diagram already on screen, loaded from the session — what a follow-up edits
     base_plan: DiagramPlan | None
+    # set when the prompt was a question: the graph answers and draws nothing
+    answered: bool
+    reply: str
     # set by the Spec Writer (freeform text only)
     spec: DiagramSpec | None
     llm_plan: DiagramPlan | None

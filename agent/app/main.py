@@ -280,6 +280,9 @@ async def agent_stream(payload: AgentInput, user: User = Depends(current_user)):
                     + "\n\n"
                 )
                 await asyncio.sleep(0.05)
+            if node == "editor" and out.get("reply"):
+                yield "event: answer\ndata: " + json.dumps({"reply": out["reply"]}) + "\n\n"
+                await asyncio.sleep(0.05)
             if node == "planner" and out.get("plan_report"):
                 yield "event: plan\ndata: " + json.dumps(out["plan_report"]) + "\n\n"
                 await asyncio.sleep(0.05)
