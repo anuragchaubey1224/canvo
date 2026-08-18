@@ -70,6 +70,12 @@ export interface PlanEvent {
   // Non-empty when a stage failed and something cheaper drew the diagram. Surfaced rather
   // than hidden: a silent fallback looks identical to success until you read the picture.
   degraded: string
+  // A follow-up prompt edits the diagram already on screen instead of drawing a new one.
+  // Which path ran is shown, because getting it wrong is the failure the user notices.
+  intent: 'create' | 'edit' | 'replace'
+  applied: string[]
+  rejected: string[]
+  summary: string
 }
 
 export interface CritiqueIssue {

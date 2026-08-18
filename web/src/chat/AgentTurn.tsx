@@ -28,14 +28,19 @@ export function AgentTurn({
   activity,
   live,
   liveStatus,
+  fallbackTitle,
   onFocus,
 }: {
   activity: RunActivity
   live?: boolean
   liveStatus?: string
+  /** The conversation's name. An edit produces no spec, so without this the row would
+   *  lose the diagram's title and show the edit summary in its place. */
+  fallbackTitle?: string
   onFocus?: () => void
 }) {
-  const title = activity.spec?.title ?? (live ? 'Working…' : 'Diagram')
+  const edited = activity.plan?.intent === 'edit'
+  const title = activity.spec?.title ?? fallbackTitle ?? (live ? 'Working…' : 'Diagram')
   const failed = Boolean(activity.error)
 
   return (
@@ -51,7 +56,7 @@ export function AgentTurn({
         </span>
         <span className="artifact-title">{title}</span>
         <span className="artifact-state">
-          {failed ? 'Failed' : live ? 'Generating' : 'Generated'}
+          {failed ? 'Failed' : live ? 'Working' : edited ? 'Edited' : 'Generated'}
         </span>
         {activity.elapsed_s != null && !live && (
           <span className="artifact-time">{activity.elapsed_s}s</span>

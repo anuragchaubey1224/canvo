@@ -161,7 +161,7 @@ export function ChatPanel({
               <p>{m.text}</p>
             </div>
           ) : m.activity ? (
-            <AgentTurn key={m.id} activity={m.activity} onFocus={onFocusDiagram} />
+            <AgentTurn key={m.id} activity={m.activity} fallbackTitle={title} onFocus={onFocusDiagram} />
           ) : (
             <div key={m.id} className="turn turn--agent">
               <p className="turn-result">{m.text}</p>
@@ -169,7 +169,7 @@ export function ChatPanel({
           ),
         )}
 
-        {live && <AgentTurn activity={live} live liveStatus={liveStatus} />}
+        {live && <AgentTurn activity={live} live liveStatus={liveStatus} fallbackTitle={title} />}
         <div ref={endRef} />
       </div>
 

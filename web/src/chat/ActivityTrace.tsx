@@ -86,6 +86,36 @@ export function ActivityTrace({ activity, live }: { activity: RunActivity; live?
         </Step>
       )}
 
+      {plan?.intent === 'edit' && (
+        <Step
+          label="Edit"
+          status={plan.rejected.length ? 'warn' : 'ok'}
+          summary={
+            plan.applied.length
+              ? plan.summary || `${plan.applied.length} change${plan.applied.length > 1 ? 's' : ''}`
+              : 'nothing to change'
+          }
+        >
+          {plan.applied.length > 0 && (
+            <ul className="detail-list">
+              {plan.applied.map((change) => (
+                <li key={change}>{change}</li>
+              ))}
+            </ul>
+          )}
+          {plan.rejected.length > 0 && (
+            <>
+              <p className="detail-head">Not applied</p>
+              <ul className="detail-list detail-list--warn">
+                {plan.rejected.map((why) => (
+                  <li key={why}>{why}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Step>
+      )}
+
       {plan && (
         <Step
           label="Plan"
