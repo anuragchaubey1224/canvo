@@ -13,6 +13,9 @@ aiosqlite>=0.20
 # random tokens in httpOnly cookies, so there is no JWT library here on purpose.
 argon2-cffi>=23.1
 
+# HTTP client — outbound email (Resend) and FastAPI's TestClient.
+httpx>=0.27
+
 # LLM clients — provider abstraction + BYOK (Anthropic direct, or any OpenAI-compatible gateway)
 langchain-anthropic>=0.2
 langchain-openai>=0.2
