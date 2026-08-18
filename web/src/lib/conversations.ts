@@ -1,0 +1,97 @@
+// Conversation history — a session is a chat *and* the canvas it produced, so reopening
+// one restores both the diagram and the trace of how it got there.
+
+import { API } from './api'
+import type { CritiqueEvent, PlanEvent, SpecEvent } from './types'
+
+export interface Conversation {
+  id: string
+  title: string
+  updated_at: string
+  messages: number
+}
+
+/** The trace of one run. Stored with the assistant's turn and replayed into the same
+ *  blocks the user watched stream the first time — so history isn't a lossy summary. */
+export interface RunActivity {
+  spec?: SpecEvent | null
+  plan?: PlanEvent | null
+  passes?: CritiqueEvent[]
+  shapes?: number
+  elapsed_s?: number
+  error?: string | null
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  text: string
+  activity: RunActivity | null
+  created_at: string
+}
+
+const ACTIVE_KEY = 'canvo:sid'
+
+export function getActiveId(): string | null {
+  return localStorage.getItem(ACTIVE_KEY)
+}
+
+export function setActiveId(id: string): void {
+  localStorage.setItem(ACTIVE_KEY, id)
+}
+
+async function json<T>(res: Response, what: string): Promise<T> {
+  if (!res.ok) throw new Error(`${what} failed (${res.status})`)
+  return (await res.json()) as T
+}
+
+export async function createConversation(): Promise<Conversation> {
+  const res = await fetch(`${API}/sessions`, { method: 'POST' })
+  const { id, title } = await json<{ id: string; title: string }>(res, 'new conversation')
+  setActiveId(id)
+  return { id, title, updated_at: new Date().toISOString(), messages: 0 }
+}
+
+export async function listConversations(): Promise<Conversation[]> {
+  return json<Conversation[]>(await fetch(`${API}/sessions`), 'history')
+}
+
+export async function renameConversation(id: string, title: string): Promise<void> {
+  await fetch(`${API}/sessions/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  await fetch(`${API}/sessions/${id}`, { method: 'DELETE' })
+}
+
+export async function fetchMessages(id: string): Promise<ChatMessage[]> {
+  const res = await fetch(`${API}/sessions/${id}/messages`)
+  if (!res.ok) return []
+  return (await res.json()) as ChatMessage[]
+}
+
+export async function appendMessage(
+  id: string,
+  role: 'user' | 'assistant',
+  text: string,
+  activity?: RunActivity,
+): Promise<void> {
+  await fetch(`${API}/sessions/${id}/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ role, text, activity: activity ?? null }),
+  })
+}
+
+/** "just now" / "12m" / "3h" / "5d" — a history list needs recency, not timestamps. */
+export function relativeTime(iso: string): string {
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  return `${Math.floor(seconds / 86400)}d`
+}

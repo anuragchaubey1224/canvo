@@ -1,319 +1,297 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { Tldraw, type Editor } from 'tldraw'
+// Canvo shell: the canvas owns the screen, and everything the product has to say lives
+// in one rail on the right. A session is a conversation *and* the diagram it produced —
+// picking one from history restores both.
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Tldraw, type Editor, type TLComponents } from 'tldraw'
 import 'tldraw/tldraw.css'
+import { VerticalToolbar } from './canvas/VerticalToolbar'
+import { ZoomMenu } from './canvas/ZoomMenu'
+import { ChatPanel } from './chat/ChatPanel'
+import {
+  appendMessage,
+  createConversation,
+  deleteConversation,
+  fetchMessages,
+  getActiveId,
+  listConversations,
+  renameConversation,
+  setActiveId,
+  type ChatMessage,
+  type Conversation,
+  type RunActivity,
+} from './lib/conversations'
 import { makeApplier } from './lib/applyActions'
-import { customShapeUtils } from './shapes'
-import { fetchSnapshot, getOrCreateSessionId, saveSnapshot } from './lib/session'
+import { fetchSnapshot, saveSnapshot } from './lib/session'
 import { streamAgent } from './lib/transport'
-import type { CritiqueEvent, PlanEvent, SpecEvent } from './lib/types'
+import { customShapeUtils } from './shapes'
 
-const SAMPLE_WORKFLOW = `Draw a JWT authentication workflow: the user submits login \
-credentials from the client app, the auth service validates them against the user database, \
-on success it issues an access token and a refresh token, the client stores the tokens and \
-calls the API gateway with the access token, the gateway verifies the token signature and \
-forwards valid requests to backend services, expired tokens go through the refresh flow to \
-get a new access token, and invalid tokens return an unauthorized error to the client.`
-
-const SAMPLE_SQL = `CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255) NOT NULL UNIQUE,
-  created_at TIMESTAMP
-);
-
-CREATE TABLE orders (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  total NUMERIC(10,2) NOT NULL,
-  status VARCHAR(32)
-);`
-
-const SAMPLE_OPENAPI = `openapi: 3.0.0
-info:
-  title: Shop API
-paths:
-  /users:
-    get: { tags: [users], summary: List users }
-    post: { tags: [users], summary: Create user }
-  /users/{id}:
-    get: { tags: [users] }
-  /orders:
-    get: { tags: [orders] }
-    post: { tags: [orders] }
-  /health:
-    get: {}`
-
-type Kind = 'sql' | 'openapi' | 'text'
-
-function detectKind(text: string): Kind {
-  if (/\bcreate\s+table\b/i.test(text)) return 'sql'
-  if (/["']?(openapi|swagger)["']?\s*:/i.test(text) && text.includes('paths')) return 'openapi'
-  return 'text'
+// Defined once, outside the component: a new object each render would remount the editor.
+const CANVAS_COMPONENTS: TLComponents = {
+  // The tool rail carries the style button too — styling belongs next to the tools whose
+  // output it styles, which leaves the top-right corner to zoom alone.
+  Toolbar: VerticalToolbar,
+  StylePanel: null,
+  SharePanel: ZoomMenu, // tldraw renders this slot top-right
+  NavigationPanel: null, // its zoom + minimap moved into the zoom pill
 }
-
-const KIND_LABEL: Record<Kind, string> = { sql: 'SQL', openapi: 'OpenAPI', text: 'Text' }
 
 export default function App() {
   const editorRef = useRef<Editor | null>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const [input, setInput] = useState(SAMPLE_SQL)
-  const [status, setStatus] = useState('Paste a SQL schema or OpenAPI spec, then Generate.')
-  const [isError, setIsError] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [activeId, setActive] = useState<string | null>(null)
+  const [title, setTitle] = useState('Untitled')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [live, setLive] = useState<RunActivity | null>(null)
+  const [liveStatus, setLiveStatus] = useState('')
   const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState('autosave on')
-  const [passes, setPasses] = useState<CritiqueEvent[]>([])
-  const [spec, setSpec] = useState<SpecEvent | null>(null)
-  const [plan, setPlan] = useState<PlanEvent | null>(null)
+  const [draft, setDraft] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
 
-  const kind = useMemo(() => detectKind(input), [input])
-
-  // Restore the last snapshot for this browser's session, then autosave on change.
-  const onMount = useCallback((editor: Editor) => {
-    editorRef.current = editor
-
-    // Dark canvas is the product's default look (Eraser-class diagrams read dark-first);
-    // users can still flip it from the canvas menu.
-    editor.user.updateUserPreferences({ colorScheme: 'dark' })
-
-    let timer: number | undefined
-    const unlisten = editor.store.listen(
-      () => {
-        window.clearTimeout(timer)
-        timer = window.setTimeout(() => {
-          const id = sessionIdRef.current
-          if (!id) return
-          setSaved('Saving…')
-          void saveSnapshot(id, JSON.stringify(editor.getSnapshot())).then(() =>
-            setSaved('Saved ✓'),
-          )
-        }, 800)
-      },
-      { scope: 'document' },
-    )
-
-    void (async () => {
-      try {
-        const id = await getOrCreateSessionId()
-        sessionIdRef.current = id
-        const snap = await fetchSnapshot(id)
-        if (snap) editor.loadSnapshot(JSON.parse(snap))
-      } catch {
-        // offline / agent down — persistence just no-ops
-      }
-    })()
-
-    return () => unlisten()
+  const refreshHistory = useCallback(async () => {
+    try {
+      setConversations(await listConversations())
+    } catch {
+      // agent down — history just stays as it was
+    }
   }, [])
 
-  const onGenerate = useCallback(async () => {
+  const openConversation = useCallback(async (id: string) => {
     const editor = editorRef.current
-    if (!editor || busy) return
+    // Point the autosave at the new session before touching the canvas, or clearing the
+    // old diagram would be written back over the one we're about to leave.
+    setActive(id)
+    setActiveId(id)
+    setLive(null)
+    setLiveStatus('')
+
+    const [loaded, snapshot, history] = await Promise.all([
+      fetchMessages(id),
+      fetchSnapshot(id),
+      listConversations().catch(() => [] as Conversation[]),
+    ])
+    setMessages(loaded)
+    if (history.length) setConversations(history)
+    setTitle(history.find((c) => c.id === id)?.title ?? 'Untitled')
+
+    if (!editor) return
+    const existing = Array.from(editor.getCurrentPageShapeIds())
+    if (existing.length) editor.deleteShapes(existing)
+    if (snapshot) {
+      try {
+        editor.loadSnapshot(JSON.parse(snapshot))
+        editor.zoomToFit()
+      } catch {
+        // a snapshot written by an older shape schema — open this one on a clean canvas
+      }
+    }
+  }, [])
+
+  const startNew = useCallback(async () => {
+    const editor = editorRef.current
+    const created = await createConversation()
+    setActive(created.id)
+    setTitle(created.title)
+    setMessages([])
+    setLive(null)
+    setDraft('')
+    if (editor) {
+      const existing = Array.from(editor.getCurrentPageShapeIds())
+      if (existing.length) editor.deleteShapes(existing)
+    }
+    void refreshHistory()
+  }, [refreshHistory])
+
+  const onMount = useCallback(
+    (editor: Editor) => {
+      editorRef.current = editor
+      // Dark canvas is the product's default look; users can still flip it from the menu.
+      editor.user.updateUserPreferences({ colorScheme: 'dark' })
+
+      let timer: number | undefined
+      const unlisten = editor.store.listen(
+        () => {
+          window.clearTimeout(timer)
+          timer = window.setTimeout(() => {
+            const id = getActiveId()
+            if (id) void saveSnapshot(id, JSON.stringify(editor.getSnapshot()))
+          }, 800)
+        },
+        { scope: 'document' },
+      )
+
+      void (async () => {
+        try {
+          const history = await listConversations()
+          setConversations(history)
+          const stored = getActiveId()
+          const target = history.find((c) => c.id === stored) ?? history[0]
+          if (target) await openConversation(target.id)
+          else await startNew()
+        } catch {
+          // offline / agent down — the canvas still works, nothing persists
+        } finally {
+          setReady(true)
+        }
+      })()
+
+      return () => unlisten()
+    },
+    [openConversation, startNew],
+  )
+
+  const onSend = useCallback(async () => {
+    const editor = editorRef.current
+    const prompt = draft.trim()
+    if (!editor || busy || !prompt) return
+
+    let id = activeId
+    if (!id) {
+      const created = await createConversation()
+      id = created.id
+      setActive(id)
+    }
 
     setBusy(true)
-    setIsError(false)
-    setPasses([])
-    setSpec(null)
-    setPlan(null)
-    setStatus(kind === 'text' ? 'Writing the spec…' : 'Thinking…')
+    setDraft('')
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now(), role: 'user', text: prompt, activity: null, created_at: '' },
+    ])
+    void appendMessage(id, 'user', prompt)
+    if (title === 'Untitled') setTitle(prompt.slice(0, 60))
 
-    const ids = Array.from(editor.getCurrentPageShapeIds())
-    if (ids.length) editor.deleteShapes(ids)
+    const existing = Array.from(editor.getCurrentPageShapeIds())
+    if (existing.length) editor.deleteShapes(existing)
 
     const apply = makeApplier(editor)
-    let n = 0
-    let refined = false
+    // Accumulated outside state so the final persisted trace can't miss a late event.
+    const trace: RunActivity = { passes: [] }
+    let drawn = 0
+    setLive({ passes: [] })
+    setLiveStatus('Writing the spec…')
+
+    const push = (patch: Partial<RunActivity>) => {
+      Object.assign(trace, patch)
+      setLive({ ...trace, passes: [...(trace.passes ?? [])] })
+    }
+
     try {
       await streamAgent(
-        { message: '', payload: input, session_id: sessionIdRef.current ?? 'web' },
+        { message: '', payload: prompt, session_id: id },
         {
           onAction: (action) => {
             apply(action)
-            n += 1
-            setStatus(`Drawing… (${n})`)
+            drawn += 1
+            push({ shapes: drawn })
+            setLiveStatus(`Drawing… ${drawn}`)
+          },
+          onSpec: (spec) => {
+            push({ spec })
+            setLiveStatus('Planning the graph…')
+            if (spec.title) {
+              setTitle(spec.title)
+              void renameConversation(id, spec.title)
+            }
+          },
+          onPlan: (plan) => {
+            push({ plan })
+            setLiveStatus('Laying it out…')
           },
           onRedraw: () => {
-            // The Critic asked for a refine; what follows replaces what's on screen.
-            const drawn = Array.from(editor.getCurrentPageShapeIds())
-            if (drawn.length) editor.deleteShapes(drawn)
-            n = 0
-            refined = true
+            const shapes = Array.from(editor.getCurrentPageShapeIds())
+            if (shapes.length) editor.deleteShapes(shapes)
+            drawn = 0
           },
-          onSpec: (s) => {
-            setSpec(s)
-            setStatus(`Spec ready — ${s.components.length} components · planning…`)
+          onCritique: (pass) => {
+            trace.passes = [...(trace.passes ?? []), pass]
+            push({})
+            setLiveStatus(pass.needs_refine ? 'Adjusting the layout…' : 'Reviewing…')
           },
-          onPlan: (p) => {
-            setPlan(p)
-            setStatus(`Plan: ${p.nodes} nodes · ${p.edges} edges — laying out…`)
+          onDone: (info) => {
+            const done = info as { elapsed_s?: number } | null
+            push({ elapsed_s: done?.elapsed_s })
           },
-          onCritique: (c) => {
-            setPasses((prev) => [...prev, c])
-            if (c.needs_refine) refined = true
-            setStatus(
-              c.needs_refine
-                ? `Critic: found ${c.issue_count} issue${c.issue_count !== 1 ? 's' : ''} — adjusting…`
-                : 'Critic: layout clean ✓',
-            )
-          },
-          onDone: () =>
-            setStatus(
-              n
-                ? `Done — ${n} shapes${refined ? ' · self-corrected' : ''}.`
-                : 'Nothing to draw for this input.',
-            ),
         },
       )
-      if (n) editor.zoomToFit()
+      if (drawn) editor.zoomToFit()
     } catch (e) {
-      setIsError(true)
-      setStatus(`${(e as Error).message}. Is the agent running on :8000?`)
+      push({ error: `${(e as Error).message}. Is the agent running on :8000?` })
     } finally {
+      const result = trace.error
+        ? 'Generation failed.'
+        : `${drawn} shape${drawn === 1 ? '' : 's'} drawn.`
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now() + 1, role: 'assistant', text: result, activity: trace, created_at: '' },
+      ])
+      setLive(null)
+      setLiveStatus('')
       setBusy(false)
+      void appendMessage(id, 'assistant', result, trace).then(refreshHistory)
     }
-  }, [input, busy, kind])
+  }, [activeId, busy, draft, refreshHistory, title])
+
+  const onDelete = useCallback(
+    async (id: string) => {
+      await deleteConversation(id)
+      const rest = await listConversations().catch(() => [])
+      setConversations(rest)
+      if (id === activeId) {
+        if (rest[0]) await openConversation(rest[0].id)
+        else await startNew()
+      }
+    },
+    [activeId, openConversation, startNew],
+  )
+
+  // Re-fit when the rail opens or closes, so the diagram uses whatever space it now has.
+  useEffect(() => {
+    const t = window.setTimeout(() => editorRef.current?.zoomToFit(), 220)
+    return () => window.clearTimeout(t)
+  }, [collapsed])
 
   return (
-    <div className="app">
-      <aside className="panel">
-        <header className="brand">
-          <span className="mark">Canvo</span>
-          <span className="tag">spec → diagram</span>
-        </header>
-
-        <div className="field">
-          <div className="field-head">
-            <label htmlFor="spec">Input</label>
-            <span className={`badge${kind === 'text' ? ' is-muted' : ''}`}>{KIND_LABEL[kind]}</span>
-          </div>
-          <textarea
-            id="spec"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            spellCheck={false}
-            placeholder="Paste SQL DDL (CREATE TABLE …) or an OpenAPI spec"
-          />
-          <div className="samples">
-            <span className="samples-label">Samples</span>
-            <button className="chip" onClick={() => setInput(SAMPLE_WORKFLOW)}>
-              Workflow
-            </button>
-            <button className="chip" onClick={() => setInput(SAMPLE_SQL)}>
-              SQL
-            </button>
-            <button className="chip" onClick={() => setInput(SAMPLE_OPENAPI)}>
-              OpenAPI
-            </button>
-          </div>
-        </div>
-
-        <button className="btn-primary" onClick={onGenerate} disabled={busy}>
-          {busy && <span className="spinner" aria-hidden="true" />}
-          {busy ? 'Generating…' : 'Generate'}
-        </button>
-
-        <p className="status" data-error={isError} aria-live="polite">
-          {status}
-        </p>
-
-        {spec && (
-          <div className="spec-card" aria-live="polite">
-            <div className="critic-head">
-              <span className="critic-title">Spec</span>
-              <span className="critic-sub">
-                {spec.diagram_type ?? 'diagram'} · {spec.components.length} components ·{' '}
-                {spec.flow_steps} steps
-              </span>
-            </div>
-            {spec.title && <p className="spec-title">{spec.title}</p>}
-            {spec.phases.length > 0 && (
-              <ul className="spec-phases">
-                {spec.phases.map((phase) => (
-                  <li key={phase}>{phase}</li>
-                ))}
-              </ul>
-            )}
-            {spec.assumptions.length > 0 && (
-              <details className="spec-assumptions">
-                <summary>
-                  {spec.assumptions.length} assumption
-                  {spec.assumptions.length !== 1 ? 's' : ''} — filled in for you
-                </summary>
-                <ul>
-                  {spec.assumptions.map((a) => (
-                    <li key={a}>{a}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            {plan && (
-              <p className="spec-plan">
-                {plan.nodes} nodes · {plan.edges} edges · {plan.groups} groups
-                {plan.repaired && <span className="spec-flag"> repaired</span>}
-                {plan.fixes.length > 0 && (
-                  <span className="spec-flag"> {plan.fixes.length} auto-fixes</span>
-                )}
-              </p>
-            )}
-            {plan?.degraded && <p className="spec-degraded">{plan.degraded}</p>}
-            {plan?.issues.length ? (
-              <ul className="spec-issues">
-                {plan.issues.map((issue) => (
-                  <li key={issue.kind + issue.message} data-severity={issue.severity}>
-                    {issue.message}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+    <div className="app" data-collapsed={collapsed}>
+      <main className="stage">
+        <Tldraw onMount={onMount} shapeUtils={customShapeUtils} components={CANVAS_COMPONENTS} />
+        {!ready && <div className="boot" aria-hidden="true" />}
+        {collapsed && (
+          <button className="reveal" onClick={() => setCollapsed(false)} aria-label="Show panel">
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M10 4L6 8l4 4"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+          </button>
         )}
-
-        {passes.length > 0 && (
-          <div className="critic" aria-live="polite">
-            <div className="critic-head">
-              <span className="critic-title">Critic</span>
-              <span className="critic-sub">self-correction</span>
-            </div>
-            <ol className="critic-passes">
-              {passes.map((p) => (
-                <li key={p.pass} className="critic-pass" data-refine={p.needs_refine}>
-                  <span className="dot" aria-hidden="true" />
-                  <div className="critic-body">
-                    <div className="critic-line">
-                      <span className="critic-pass-n">Pass {p.pass}</span>
-                      <span className="critic-src">
-                        {p.source === 'geometry+vision' ? 'vision + geometry' : 'geometry'}
-                      </span>
-                    </div>
-                    {p.needs_refine ? (
-                      <>
-                        <p className="critic-summary">{p.summary}</p>
-                        <p className="critic-note">
-                          {p.issue_count} issue{p.issue_count !== 1 ? 's' : ''} → widening spacing
-                        </p>
-                      </>
-                    ) : p.has_issues ? (
-                      <p className="critic-note">
-                        {p.issue_count} advisory warning{p.issue_count !== 1 ? 's' : ''} —{' '}
-                        {p.summary}
-                      </p>
-                    ) : (
-                      <p className="critic-note critic-note--ok">Layout clean ✓</p>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-
-        <footer className="foot">
-          <span>SQL &amp; OpenAPI · live</span>
-          <span>{saved}</span>
-        </footer>
-      </aside>
-
-      <main className="canvas">
-        <Tldraw onMount={onMount} shapeUtils={customShapeUtils} />
       </main>
+
+      {!collapsed && (
+        <ChatPanel
+          title={title}
+          messages={messages}
+          live={live}
+          liveStatus={liveStatus}
+          busy={busy}
+          draft={draft}
+          onDraft={setDraft}
+          onSend={onSend}
+          conversations={conversations}
+          activeId={activeId}
+          onNew={startNew}
+          onSelect={openConversation}
+          onDelete={onDelete}
+          onCollapse={() => setCollapsed(true)}
+          onFocusDiagram={() => editorRef.current?.zoomToFit()}
+        />
+      )}
     </div>
   )
 }

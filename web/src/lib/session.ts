@@ -1,19 +1,7 @@
-// Session persistence: create/lookup a session and save/restore the canvas snapshot.
+// Canvas persistence for a session. Which session is active, and its conversation, are
+// owned by conversations.ts — this file only moves the tldraw snapshot.
 
 import { API } from './api'
-
-const SID_KEY = 'canvo:sid'
-
-export async function getOrCreateSessionId(): Promise<string> {
-  const existing = localStorage.getItem(SID_KEY)
-  if (existing) return existing
-
-  const res = await fetch(`${API}/sessions`, { method: 'POST' })
-  if (!res.ok) throw new Error(`session create failed (${res.status})`)
-  const { id } = (await res.json()) as { id: string }
-  localStorage.setItem(SID_KEY, id)
-  return id
-}
 
 export async function fetchSnapshot(id: string): Promise<string | null> {
   const res = await fetch(`${API}/sessions/${id}/snapshot`)
