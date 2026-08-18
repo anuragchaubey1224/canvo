@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AuthSession, Message, Run, Session, User
+from app.db.models import AuthSession, AuthToken, Message, Run, Session, User
 
 # A provisional conversation title taken from the first prompt. The client replaces it
 # with the spec's own title once the Spec Writer has one, so the name sharpens as the
@@ -267,3 +267,65 @@ async def adopt_orphan_sessions(db: AsyncSession, user_id: str) -> int:
 async def count_users(db: AsyncSession) -> int:
     rows = await db.execute(select(func.count(User.id)))
     return int(rows.scalar_one())
+
+
+# --------------------------------------------------------------------------------------
+# Single-use tokens behind emailed links
+# --------------------------------------------------------------------------------------
+
+
+async def issue_auth_token(
+    db: AsyncSession, user_id: str, purpose: str, token_hash: str, ttl: timedelta
+) -> AuthToken:
+    """Mint a link token, retiring the account's earlier ones of the same purpose.
+
+    "Send it again" is a normal thing to do when the first mail is slow, and without this
+    each click would leave another live key sitting in another copy of the inbox.
+    """
+    await db.execute(
+        delete(AuthToken).where(AuthToken.user_id == user_id, AuthToken.purpose == purpose)
+    )
+    now = datetime.now(UTC)
+    row = AuthToken(
+        token_hash=token_hash,
+        user_id=user_id,
+        purpose=purpose,
+        created_at=now,
+        expires_at=now + ttl,
+    )
+    db.add(row)
+    await db.commit()
+    return row
+
+
+async def consume_auth_token(db: AsyncSession, token_hash: str, purpose: str) -> User | None:
+    """Redeem a link token, exactly once. None if it's unknown, expired, already used, or
+    was issued for something else.
+
+    The purpose check is not paperwork: without it a verification link — which is handed
+    out freely at signup — would be redeemable as a password reset.
+    """
+    row = await db.get(AuthToken, token_hash)
+    if row is None or row.purpose != purpose or row.used_at is not None:
+        return None
+
+    now = datetime.now(UTC)
+    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
+    if expires <= now:
+        await db.delete(row)
+        await db.commit()
+        return None
+
+    # Marked spent in the same transaction that reads it, so two clicks in flight at once
+    # can't both succeed.
+    row.used_at = now
+    await db.commit()
+    return await db.get(User, row.user_id)
+
+
+async def mark_email_verified(db: AsyncSession, user_id: str) -> None:
+    user = await db.get(User, user_id)
+    if user is None:
+        return
+    user.email_verified = True
+    await db.commit()

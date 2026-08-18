@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -30,7 +30,29 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Whether the address has been confirmed. Signup does not block on it — an unverified
+    # account still works — but it is what lets us trust the inbox for recovery later.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AuthToken(Base):
+    """A single-use token behind an emailed link — password reset, or address confirmation.
+
+    Keyed by the SHA-256 of the token like a session, and `used_at` is what makes it
+    single-use: a link that has worked once is spent, so forwarding it, or a mail scanner
+    following it, hands nobody a second chance. `purpose` is checked on redemption so a
+    verification link can never be replayed as a password reset.
+    """
+
+    __tablename__ = "auth_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(16), index=True)  # "reset" | "verify"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AuthSession(Base):

@@ -9,8 +9,11 @@ retrofitted, since both are much harder to add later:
     the same time. An endpoint that says "no such user" is a free list of your customers.
   - **Throttling on the login path**, keyed by account and by IP (see throttle.py).
 
-Deliberately not here yet, and each is additive: email verification and password reset
-(both need an SMTP provider), magic links, OAuth, and TOTP.
+Recovery lives here too. A reset link is a temporary key to an account, so it is a
+single-use, purpose-bound, short-lived token (see link_tokens.py), redeeming it destroys
+every other session, and asking for one never confirms whether the address is registered.
+
+Deliberately not here yet, and each is additive: magic links, OAuth, and TOTP.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import throttle
+from app.auth import link_tokens, throttle
 from app.auth.deps import clear_session_cookie, client_ip, current_user, set_session_cookie
 from app.auth.passwords import (
     PasswordRejected,
@@ -34,6 +37,7 @@ from app.auth.tokens import COOKIE_NAME, hash_token, new_token
 from app.db import repo
 from app.db.engine import get_db
 from app.db.models import User
+from app.email import app_url, send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -52,7 +56,21 @@ class Credentials(BaseModel):
 
 
 def _account(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "created_at": user.created_at.isoformat()}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "email_verified": bool(user.email_verified),
+        "created_at": user.created_at.isoformat(),
+    }
+
+
+async def _send_link(db: AsyncSession, user: User, purpose: str) -> None:
+    """Mint a single-use token and mail the link. Never raises — see app/email."""
+    token, token_hash = new_token()
+    await repo.issue_auth_token(db, user.id, purpose, token_hash, link_tokens.TTL[purpose])
+    path = "reset" if purpose == link_tokens.RESET else "verify"
+    link = f"{app_url()}/{path}?token={token}"
+    await send_email(user.email, link_tokens.SUBJECTS[purpose], link_tokens.body_for(purpose, link))
 
 
 def _ttl_seconds() -> int:
@@ -104,6 +122,7 @@ async def signup(
         await repo.adopt_orphan_sessions(db, user.id)
 
     throttle.record_success(email, ip)
+    await _send_link(db, user, link_tokens.VERIFY)
     await _issue_session(db, response, user)
     return _account(user)
 
@@ -166,3 +185,102 @@ async def logout_all(
 @router.get("/me")
 async def me(user: User = Depends(current_user)):
     return _account(user)
+
+
+# --- recovery and verification -----------------------------------------------------------
+
+
+class ForgotIn(BaseModel):
+    email: str = Field(max_length=320)
+
+
+class ResetIn(BaseModel):
+    token: str = Field(max_length=256)
+    password: str = Field(max_length=1024)
+
+
+class TokenIn(BaseModel):
+    token: str = Field(max_length=256)
+
+
+@router.post("/forgot", status_code=202)
+async def forgot(body: ForgotIn, request: Request, db: AsyncSession = Depends(get_db)):
+    """Send a reset link, if there is an account to send it to.
+
+    Always 202, whatever happens. A "no such account" here would turn the form into the
+    account-enumeration oracle the login endpoint carefully isn't, and the person who
+    typed a wrong address is better served by "check your inbox" than by a confirmation
+    that their own address isn't registered.
+    """
+    email = repo.normalise_email(body.email)
+    ip = client_ip(request)
+    if not throttle.check(email, ip):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+    throttle.record_failure(email, ip)  # rate-limit the *sending*, not just guessing
+
+    user = await repo.get_user_by_email(db, email)
+    if user is not None:
+        await _send_link(db, user, link_tokens.RESET)
+    return {"ok": True}
+
+
+@router.post("/reset")
+async def reset(
+    body: ResetIn,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Set a new password from an emailed link, then sign the browser in.
+
+    Signing in here is safe and kinder than sending them back to the form: proving control
+    of the inbox is the whole point of the link. Every OTHER session is destroyed — if the
+    reason for the reset was that somebody else had the password, leaving their session
+    alive would make the reset pointless.
+    """
+    user = await repo.consume_auth_token(db, hash_token(body.token), link_tokens.RESET)
+    if user is None:
+        raise HTTPException(
+            status_code=400, detail="That link has expired or has already been used."
+        )
+    try:
+        check_policy(body.password, email=user.email)
+    except PasswordRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    await repo.update_password_hash(db, user.id, hash_password(body.password))
+    await repo.delete_all_auth_sessions(db, user.id)
+    # Reaching the inbox is itself proof of control, so this confirms the address too.
+    await repo.mark_email_verified(db, user.id)
+
+    throttle.record_success(user.email, "reset")
+    await _issue_session(db, response, user)
+    return _account(user)
+
+
+@router.post("/verify")
+async def verify(body: TokenIn, db: AsyncSession = Depends(get_db)):
+    """Confirm an address. Unauthenticated on purpose — the link often gets opened in a
+    different browser from the one that signed up."""
+    user = await repo.consume_auth_token(db, hash_token(body.token), link_tokens.VERIFY)
+    if user is None:
+        raise HTTPException(
+            status_code=400, detail="That link has expired or has already been used."
+        )
+    await repo.mark_email_verified(db, user.id)
+    return {"ok": True, "email": user.email}
+
+
+@router.post("/verify/resend", status_code=202)
+async def resend_verification(
+    request: Request,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if user.email_verified:
+        return {"ok": True}
+    ip = client_ip(request)
+    if not throttle.check(user.email, ip):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+    throttle.record_failure(user.email, ip)
+    await _send_link(db, user, link_tokens.VERIFY)
+    return {"ok": True}

@@ -55,12 +55,18 @@ def _add_missing_columns(conn) -> None:
     from sqlalchemy import inspect, text
 
     inspector = inspect(conn)
-    if "sessions" not in inspector.get_table_names():
-        return
-    existing = {col["name"] for col in inspector.get_columns("sessions")}
-    for column, ddl in (("user_id", "VARCHAR(36)"), ("plan", "TEXT")):
-        if column not in existing:
-            conn.execute(text(f"ALTER TABLE sessions ADD COLUMN {column} {ddl}"))
+    tables = set(inspector.get_table_names())
+    additions = {
+        "sessions": (("user_id", "VARCHAR(36)"), ("plan", "TEXT")),
+        "users": (("email_verified", "BOOLEAN DEFAULT 0"),),
+    }
+    for table, columns in additions.items():
+        if table not in tables:
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table)}
+        for column, ddl in columns:
+            if column not in existing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
