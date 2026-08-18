@@ -168,6 +168,32 @@ button {
 }
 
 /* ---- Canvas chrome ---- */
+/* The way home, at the top-left: first position in the reading order and where every
+   product on the web puts its mark, so it needs no label to be found. It is the only
+   accented control on the canvas — everything else here is a grey tool — which is what
+   separates "leave" from "draw". Always mounted, so hiding the rail can't strand you. */
+.brand-home {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 310;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--lift), var(--shadow-sm);
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.brand-home:hover {
+  background: var(--accent-weak);
+  border-color: var(--accent);
+}
+
 .reveal {
   position: absolute;
   top: 12px;
@@ -269,7 +295,7 @@ button {
    reads as clipped. Float it like every other control on the canvas — same margin as the
    zoom pill, same surface, same border, all four corners rounded. */
 .tlui-menu-zone {
-  margin: 12px 0 0 12px;
+  margin: 12px 0 0 64px; /* clears the brand mark */
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1293,23 +1319,6 @@ button {
   color: var(--danger);
 }
 
-/* Back to the dashboard, from the editor's rail header. */
-.head-back {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
-  margin-left: -6px;
-  color: var(--text-faint);
-  border-radius: var(--r-xs);
-  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
-}
-
-.head-back:hover {
-  color: var(--text);
-  background: var(--surface-2);
-}
 
 .listing-open {
   display: flex;

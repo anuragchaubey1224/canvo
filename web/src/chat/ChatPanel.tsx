@@ -47,7 +47,6 @@ export function ChatPanel({
   onNew,
   onSelect,
   onDelete,
-  onHome,
   onCollapse,
   onFocusDiagram,
 }: {
@@ -64,7 +63,6 @@ export function ChatPanel({
   onNew: () => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
-  onHome: () => void
   onCollapse: () => void
   onFocusDiagram: () => void
 }) {
@@ -80,18 +78,6 @@ export function ChatPanel({
   return (
     <aside className="rail">
       <header className="rail-head">
-        <button className="head-back" onClick={onHome} title="All diagrams" aria-label="All diagrams">
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <path
-              d="M9.5 3.5L5 8l4.5 4.5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          </svg>
-        </button>
         <h1 className="rail-title" title={title}>
           {empty ? 'New diagram' : title}
         </h1>

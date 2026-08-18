@@ -296,8 +296,35 @@ export default function Editor({
       <main className="stage">
         <Tldraw onMount={onMount} shapeUtils={customShapeUtils} components={CANVAS_COMPONENTS} />
         {!ready && <div className="boot" aria-hidden="true" />}
+        {/* The way home is the brand mark at the top-left, where every product on the
+            web puts it — first thing in the reading order, and unaffected by whether the
+            rail is open. It is also the only accented control on the canvas, so it reads
+            as the way out rather than as one more grey tool. */}
+        <button
+          className="brand-home"
+          onClick={() => onNavigate('/')}
+          title="All diagrams"
+          aria-label="All diagrams"
+        >
+          <svg width="19" height="19" viewBox="0 0 20 20" aria-hidden="true">
+            <path
+              d="M3 3.5v13h13M7 12.5V8M11 12.5V4.5M15 12.5v-3"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </svg>
+        </button>
+
         {collapsed && (
-          <button className="reveal" onClick={() => setCollapsed(false)} aria-label="Show panel">
+          <button
+            className="reveal"
+            onClick={() => setCollapsed(false)}
+            title="Show panel"
+            aria-label="Show panel"
+          >
             <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
               <path
                 d="M10 4L6 8l4 4"
@@ -327,7 +354,6 @@ export default function Editor({
           onNew={startNew}
           onSelect={(id) => onNavigate(`/d/${id}`)}
           onDelete={onDelete}
-          onHome={() => onNavigate('/')}
           onCollapse={() => setCollapsed(true)}
           onFocusDiagram={() => fitToCanvas(editorRef.current)}
         />
