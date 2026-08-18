@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import re
 
+from app.graph.compose import Cell, center_in, choose_grid, compose
 from app.graph.planner_llm import DiagramPlan, PlanEdge, PlanNode
-from app.schema import AgentAction, Shape
+from app.schema import AgentAction, Shape, color_token
 from app.tools.parse_openapi import ParsedAPI
 from app.tools.parse_sql import ParsedSchema, Table
 
@@ -25,26 +26,28 @@ _GAP_Y = 420
 _X0 = 80
 _Y0 = 80
 
-# Flow-node geometry (layered layout). Calibrated against Eraser's density: compact
-# cards and tight gaps mechanically shorten every arrow — most "routing quality" is
-# actually layout density, so resist the urge to widen these for breathing room.
-_NODE_W = 200
-_NODE_H = 64
-_DECISION_H = 96  # diamonds need more vertical room for their label
-_FLOW_GAP_X = 56  # between siblings in a row (top-down flows)
-_FLOW_GAP_Y = 72  # between rows/ranks (top-down flows)
-_FLOW_GAP_RX = 64  # between rank-columns (left-to-right flows inside panels)
-_FLOW_GAP_RY = 40  # between stacked siblings (left-to-right flows)
+# Flow-node geometry (layered layout), calibrated against the reference: its cards measure
+# ~234x116 with ~138 between them. What keeps a diagram compact is not shrinking the cards
+# — it is bounding the whole composition (see compose.py); a card too flat for two lines of
+# text just looks cheap. Column gaps must stay wide enough for an edge label to sit in.
+_NODE_W = 220
+_NODE_H = 92
+_DECISION_H = 112  # diamonds need more vertical room for their label
+_FLOW_GAP_X = 72  # between siblings in a row (top-down flows)
+_FLOW_GAP_Y = 88  # between rows/ranks (top-down flows)
+_FLOW_GAP_RX = 88  # between rank-columns (left-to-right flows inside panels)
+_FLOW_GAP_RY = 52  # between stacked siblings (left-to-right flows)
+_MIN_COL_GAP = 56.0  # floor when tightening a panel to fit one grid column
+_MAX_COL_GAP = 200.0  # ceiling when spreading content across a stretched panel
 
-# Panels wrap into a grid once a row of them would exceed this width (pre-scale), so a
-# chain of stages packs like Eraser's 2-column look instead of one tall column.
-_ROW_CAP = 1700.0
+# The tightest gap this layout ever leaves between two sibling cards. The geometry Critic
+# imports it so its "crowded" bar can never drift above what the layout actually produces
+# — that drift silently forced a 1.5x refine on *every* grouped diagram.
+MIN_SIBLING_GAP = float(min(_FLOW_GAP_X, _FLOW_GAP_Y, _FLOW_GAP_RX, _FLOW_GAP_RY))
 
 # Container (group panel) chrome — tight, Eraser-style panels that hug their content.
-_GROUP_PAD = 28
-_GROUP_TITLE_H = 40
-_GROUP_GAP_X = 90
-_GROUP_GAP_Y = 110
+_GROUP_PAD = 32
+_GROUP_TITLE_H = 44
 
 # Default node color by semantic kind (tldraw color tokens). Open set: unknown kinds
 # simply get no color and render as plain boxes (ADR-013).
@@ -258,19 +261,27 @@ def _layout_flow(
     edges: list[PlanEdge],
     gap_scale: float,
     direction: str = "down",
+    col_gap: float | None = None,
 ) -> tuple[dict[str, tuple[float, float]], float, float]:
     """Layered flow layout. Returns (positions relative to (0,0), width, height).
 
     `direction="down"` stacks ranks as rows (whole-canvas flows); `direction="right"`
     stacks them as columns — used inside group panels so they come out wide and short,
-    the way Eraser draws stage lanes.
+    the way Eraser draws stage lanes. `col_gap` overrides the space between those columns,
+    which is how a panel is tightened to fit one grid column (see `_fit_to_width`).
     """
     if not nodes:
         return {}, 0.0, 0.0
 
     ids = [n.id for n in nodes]
     kind_of = {n.id: n.kind for n in nodes}
-    ranks = _ranks(ids, [(e.source, e.target) for e in edges])
+    if not edges and direction == "right":
+        # A group with no internal flow is a reference panel (the reference diagram's
+        # "Token Anatomy": header / payload / signature side by side). Give each card its
+        # own rank so they read as a row, not as one stacked column.
+        ranks = {nid: i for i, nid in enumerate(ids)}
+    else:
+        ranks = _ranks(ids, [(e.source, e.target) for e in edges])
     lanes: dict[int, list[str]] = {}
     for i in ids:
         lanes.setdefault(ranks[i], []).append(i)
@@ -313,7 +324,7 @@ def _layout_flow(
         return pos, total_w, y - gap_y
 
     # direction == "right": ranks become columns, siblings stack vertically.
-    gap_cx = _FLOW_GAP_RX * gap_scale
+    gap_cx = _FLOW_GAP_RX * gap_scale if col_gap is None else col_gap
     gap_cy = _FLOW_GAP_RY * gap_scale
     lane_height = {
         r: sum(_node_size(kind_of[n])[1] for n in lane) + gap_cy * (len(lane) - 1)
@@ -382,45 +393,88 @@ def _edge_actions(
     return actions
 
 
-def _title_action(title: str | None) -> list[AgentAction]:
-    if not title or not title.strip():
-        return []
+def _frame_action(title: str | None, frame) -> list[AgentAction]:
+    """The outer frame: one titled box holding the whole composition.
+
+    The reference wraps every diagram in one — it is what makes the output read as a
+    finished artefact instead of shapes that happen to sit near each other, and its padding
+    gives long arrows a clear lane around the panels.
+    """
     return [
         AgentAction(
             type="create",
             shape=Shape(
-                id="diagram-title",
-                type="text",
-                x=_X0,
-                y=_Y0 - 96,
-                w=640,
-                h=44,
-                text=title.strip(),
+                id="diagram-frame",
+                type="frame",
+                x=frame.x,
+                y=frame.y,
+                w=frame.w,
+                h=frame.h,
+                text=(title or "").strip(),
             ),
         )
     ]
 
 
+Local = tuple[dict[str, tuple[float, float]], float, float]
+
+
+def _relayout_to_width(
+    members: list[PlanNode], inner: list[PlanEdge], gap_scale: float, target: float
+) -> Local | None:
+    """Re-lay a panel's members so it lands as close to `target` wide as the gaps allow.
+
+    Used in both directions. *Tightening* lets a panel only a little wider than one grid
+    column share a row instead of claiming the whole thing — the reference does the same,
+    its narrower lanes hold visibly smaller cards. *Widening* spreads a two-card stage
+    across the panel it was stretched into, instead of leaving a moat around the content.
+
+    The gap solves directly: laying out once at gap 0 gives the fixed part of the width, so
+    the per-column gap that lands on `target` follows. Returns None when nothing can move.
+    """
+    base = _layout_flow(members, inner, gap_scale, direction="right")
+    tight = _layout_flow(members, inner, gap_scale, direction="right", col_gap=0.0)
+    gaps_w = base[1] - tight[1]
+    if gaps_w <= 0:  # a single column — there are no gaps to trade
+        return None
+    base_gap = _FLOW_GAP_RX * gap_scale
+    columns = gaps_w / base_gap
+    needed = min(max((target - tight[1]) / columns, _MIN_COL_GAP), _MAX_COL_GAP)
+    if abs(needed - base_gap) < 1.0:
+        return None
+    return _layout_flow(members, inner, gap_scale, direction="right", col_gap=needed)
+
+
 def build_graph_actions(
     plan: DiagramPlan, *, cols: int = 3, gap_scale: float = 1.0
 ) -> list[AgentAction]:
-    """Freeform plan → layered layout. With groups: one container panel per group
-    (sized to fit its members), panels arranged by their own dependency rank; without
-    groups: a single top-down layered flow. Emit order = containers, nodes, arrows —
-    creation order is z-order on the canvas."""
+    """Freeform plan → a composed diagram: group panels justified into a column grid
+    inside a titled frame (see compose.py), each panel holding a left-to-right flow.
+    Without groups, a single top-down layered flow gets the same frame. Emit order =
+    frame, containers, nodes, arrows — creation order is z-order on the canvas."""
     node_ids = {n.id for n in plan.nodes}
 
     if not plan.groups:
-        pos, _w, _h = _layout_flow(plan.nodes, plan.edges, gap_scale)
+        pos, flow_w, flow_h = _layout_flow(plan.nodes, plan.edges, gap_scale)
+        comp = compose(
+            [Cell(key="flow", w=flow_w, h=flow_h, chrome=False)],
+            gap_scale=gap_scale,
+            origin=(float(_X0), float(_Y0)),
+        )
+        ox, oy = center_in(comp.slots["flow"], flow_w, flow_h)
         accent_of = {n.id: _KIND_COLOR.get(n.kind or "", "grey") for n in plan.nodes}
         actions = [
             AgentAction(
                 type="create",
-                shape=_node_shape(n, _X0 + pos[n.id][0], _Y0 + pos[n.id][1], None),
+                shape=_node_shape(n, ox + pos[n.id][0], oy + pos[n.id][1], None),
             )
             for n in plan.nodes
         ]
-        return _title_action(plan.title) + actions + _edge_actions(plan.edges, node_ids, accent_of)
+        return (
+            _frame_action(plan.title, comp.frame)
+            + actions
+            + _edge_actions(plan.edges, node_ids, accent_of)
+        )
 
     # ---- grouped layout ----
     group_ids = [g.id for g in plan.groups]
@@ -440,104 +494,130 @@ def build_graph_actions(
                 cross.append((slot_of[e.source], slot_of[e.target]))
     granks = _ranks(slots, cross)
 
+    # A panel with no cross-group edges at all — a reference lane like the reference
+    # diagram's "Token Anatomy" — has nothing to rank it, so the ranker calls it rank 0 and
+    # it jumps ahead of stage 1. Nothing in the graph says where it goes, so honour the
+    # order the planner numbered its phases in.
+    connected = {slot for pair in cross for slot in pair}
+    seen_rank = 0
+    for gid in slots:  # declaration order
+        if gid in connected:
+            seen_rank = granks[gid]
+        else:
+            granks[gid] = seen_rank
+
     # Lay out each slot's members locally (left-to-right, so panels come out wide and
     # short like Eraser's stage lanes), then size its panel around them.
     members: dict[str, list[PlanNode]] = {gid: [] for gid in slots}
     for n in plan.nodes:
         members[slot_of[n.id]].append(n)
-    local: dict[str, tuple[dict[str, tuple[float, float]], float, float]] = {}
+    local: dict[str, Local] = {}
+    inner_edges: dict[str, list[PlanEdge]] = {}
     for gid in slots:
         ids_in = {n.id for n in members[gid]}
-        inner = [e for e in plan.edges if e.source in ids_in and e.target in ids_in]
-        local[gid] = _layout_flow(members[gid], inner, gap_scale, direction="right")
+        inner_edges[gid] = [e for e in plan.edges if e.source in ids_in and e.target in ids_in]
+        local[gid] = _layout_flow(members[gid], inner_edges[gid], gap_scale, direction="right")
 
-    def panel_size(gid: str) -> tuple[float, float]:
+    def chrome(gid: str) -> bool:
+        return not gid.startswith("__loose__")
+
+    def outer(gid: str) -> tuple[float, float]:
         _pos, w, h = local[gid]
-        if gid.startswith("__loose__"):
+        if not chrome(gid):
             return (w, h)
         return (w + 2 * _GROUP_PAD, h + _GROUP_PAD + _GROUP_TITLE_H)
 
-    # Pack panels into a grid in flow order (rank, then declaration order), wrapping
-    # rows at a width cap — a linear 1→2→3→4 stage chain becomes a compact 2-column
-    # grid instead of one tall column.
+    # Panels are composed in flow order (panel rank, then declaration order).
     slot_index = {gid: i for i, gid in enumerate(slots)}
     ordered = sorted(slots, key=lambda gid: (granks[gid], slot_index[gid]))
-    ggap_x = _GROUP_GAP_X * gap_scale
-    ggap_y = _GROUP_GAP_Y * gap_scale
-    cap = _ROW_CAP * gap_scale
-    packed: list[list[str]] = []
-    current: list[str] = []
-    current_w = 0.0
-    for gid in ordered:
-        pw = panel_size(gid)[0]
-        next_w = pw if not current else current_w + ggap_x + pw
-        if current and next_w > cap:
-            packed.append(current)
-            current, next_w = [], pw
-        current, current_w = current + [gid], next_w
-    if current:
-        packed.append(current)
 
-    row_w = {
-        r: sum(panel_size(g)[0] for g in row) + ggap_x * (len(row) - 1)
-        for r, row in enumerate(packed)
-    }
-    total_w = max(row_w.values())
+    # Fit-to-column: the widest panel sets the grid, then every panel that is only a little
+    # too wide is re-laid tighter so it can share a row instead of claiming a whole one.
+    cells = [Cell(key=gid, w=outer(gid)[0], h=outer(gid)[1], chrome=chrome(gid)) for gid in ordered]
+    grid = choose_grid(cells, gap_scale)
+    if grid.columns > 1:
+        for gid in ordered:
+            pad = 2 * _GROUP_PAD if chrome(gid) else 0.0
+            if outer(gid)[0] <= grid.column_width:
+                continue
+            fitted = _relayout_to_width(
+                members[gid], inner_edges[gid], gap_scale, grid.column_width - pad
+            )
+            if fitted is not None and fitted[1] + pad <= grid.column_width:
+                local[gid] = fitted
+        cells = [
+            Cell(key=gid, w=outer(gid)[0], h=outer(gid)[1], chrome=chrome(gid)) for gid in ordered
+        ]
+
+    # Pin the grid chosen before fitting: re-deriving it from the now-narrower panels
+    # would move the columns the panels were just fitted to.
+    comp = compose(cells, gap_scale=gap_scale, origin=(float(_X0), float(_Y0)), grid=grid)
+
+    # Justification stretches panels to fill their row; spread each one's cards to match,
+    # so a two-card stage doesn't sit in a moat inside a full-width panel.
+    for gid in ordered:
+        pad = 2 * _GROUP_PAD if chrome(gid) else 0.0
+        room = comp.slots[gid].w - pad
+        if local[gid][1] >= room - 1:
+            continue
+        spread = _relayout_to_width(members[gid], inner_edges[gid], gap_scale, room)
+        if spread is not None and spread[1] > local[gid][1]:
+            local[gid] = spread
 
     containers: list[AgentAction] = []
     node_actions: list[AgentAction] = []
     labels = {g.id: g.label for g in plan.groups}
+    # A planner's colour is a suggestion, not a promise: anything the client can't render
+    # becomes grey there, so an unrecognised value must fall through to our own cycle here
+    # rather than reach the canvas. Colour is then guaranteed whatever model is behind us.
     colors = {
-        g.id: (g.color or _GROUP_COLORS[i % len(_GROUP_COLORS)]) for i, g in enumerate(plan.groups)
+        g.id: (color_token(g.color) or _GROUP_COLORS[i % len(_GROUP_COLORS)])
+        for i, g in enumerate(plan.groups)
     }
 
-    y = float(_Y0)
-    for r, row in enumerate(packed):
-        row_h = max(panel_size(g)[1] for g in row)
-        x = _X0 + (total_w - row_w[r]) / 2
-        for gid in row:
-            pw, ph = panel_size(gid)
-            pos, _w, _h = local[gid]
-            if gid.startswith("__loose__"):
-                origin = (x, y + (row_h - ph) / 2)  # center a lone node on its panel row
-                parent = None
-            else:
-                cid = f"g-{_slug(gid)}"
-                containers.append(
-                    AgentAction(
-                        type="create",
-                        shape=Shape(
-                            id=cid,
-                            type="container",
-                            x=x,
-                            y=y,
-                            w=pw,
-                            h=ph,
-                            text=labels[gid],
-                            color=colors[gid],
-                        ),
-                    )
+    for gid in ordered:
+        box = comp.slots[gid]
+        pos, content_w, content_h = local[gid]
+        if chrome(gid):
+            cid = f"g-{_slug(gid)}"
+            containers.append(
+                AgentAction(
+                    type="create",
+                    shape=Shape(
+                        id=cid,
+                        type="container",
+                        x=box.x,
+                        y=box.y,
+                        w=box.w,
+                        h=box.h,
+                        text=labels[gid],
+                        color=colors[gid],
+                    ),
                 )
-                origin = (x + _GROUP_PAD, y + _GROUP_TITLE_H)
-                parent = cid
-            g_accent = colors.get(gid)
-            for n in members[gid]:
-                nx, ny = pos[n.id]
-                node_actions.append(
-                    AgentAction(
-                        type="create",
-                        shape=_node_shape(n, origin[0] + nx, origin[1] + ny, parent, g_accent),
-                    )
+            )
+            origin = center_in(
+                box, content_w, content_h, top_inset=_GROUP_TITLE_H, bottom_inset=_GROUP_PAD
+            )
+            parent: str | None = cid
+        else:
+            origin = center_in(box, content_w, content_h)
+            parent = None
+        g_accent = colors.get(gid)
+        for n in members[gid]:
+            nx, ny = pos[n.id]
+            node_actions.append(
+                AgentAction(
+                    type="create",
+                    shape=_node_shape(n, origin[0] + nx, origin[1] + ny, parent, g_accent),
                 )
-            x += pw + ggap_x
-        y += row_h + ggap_y
+            )
 
     # Arrows carry their source node's group accent (loose nodes: kind color).
     accent_of = {
         n.id: colors.get(slot_of[n.id]) or _KIND_COLOR.get(n.kind or "", "grey") for n in plan.nodes
     }
     return (
-        _title_action(plan.title)
+        _frame_action(plan.title, comp.frame)
         + containers
         + node_actions
         + _edge_actions(plan.edges, node_ids, accent_of)

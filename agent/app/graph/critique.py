@@ -22,14 +22,23 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.graph.layout import MIN_SIBLING_GAP
 from app.schema import AgentAction, Shape
 
-# A box wants at least this much clear space around it. Two boxes whose rects — grown
-# by this margin — still intersect are "crowded", even if they don't literally overlap.
-_MARGIN = 28.0
+# Two boxes closer than this are "crowded", even if they don't literally overlap. Derived
+# from the layout's own tightest gap so the two can never drift apart: hard-coding it once
+# put the bar ABOVE what the layout produces, so every grouped diagram reported a phantom
+# overlap on pass 1 and got force-widened 1.5x — which is what wrecked the composition.
+_MARGIN = MIN_SIBLING_GAP * 0.75
 
 # Slack when checking a member sits inside its container (float noise, border widths).
 _INSET_EPS = 0.5
+
+# Footprint of an edge-label chip: two labels closer than this in BOTH axes overlap on
+# screen. The router imports these to place labels that clear each other in the first
+# place, rather than leaving the Critic to report a collision nobody then fixes.
+LABEL_CLEAR_X = 56.0
+LABEL_CLEAR_Y = 24.0
 
 
 class Issue(BaseModel):
@@ -55,12 +64,16 @@ def _created(actions: list[AgentAction], shape_type: str) -> list[Shape]:
 
 
 def _intersects(a: Shape, b: Shape, pad: float) -> bool:
-    """Do the two rects intersect once each is grown by `pad` on every side?"""
+    """Are the two rects closer than `pad` apart (overlapping counts)?
+
+    `pad` is the required CLEARANCE, so it is applied once — growing both rects would
+    demand `2 * pad` and flag layouts that are in fact exactly as designed.
+    """
     return (
-        a.x - pad < b.x + b.w + pad
-        and a.x + a.w + pad > b.x - pad
-        and a.y - pad < b.y + b.h + pad
-        and a.y + a.h + pad > b.y - pad
+        a.x - pad < b.x + b.w
+        and a.x + a.w + pad > b.x
+        and a.y - pad < b.y + b.h
+        and a.y + a.h + pad > b.y
     )
 
 
@@ -228,7 +241,7 @@ def analyze_geometry(actions: list[AgentAction]) -> GeometryReport:
         for j in range(i + 1, len(label_points)):
             id_a, xa, ya = label_points[i]
             id_b, xb, yb = label_points[j]
-            if abs(xa - xb) < 56 and abs(ya - yb) < 24:
+            if abs(xa - xb) < LABEL_CLEAR_X and abs(ya - yb) < LABEL_CLEAR_Y:
                 issues.append(
                     Issue(
                         kind="label_collision",

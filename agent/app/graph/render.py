@@ -23,6 +23,7 @@ _BOX_FILL = (248, 250, 252)
 _BOX_LINE = (51, 65, 85)
 _TEXT = (15, 23, 42)
 _ARROW = (99, 102, 241)
+_FRAME_LINE = (148, 163, 184)
 
 # tldraw color token → (fill tint, outline). Mirrors what the client renders so the
 # vision critic judges roughly the same picture the user sees.
@@ -67,6 +68,7 @@ def render_actions(actions: list[AgentAction], *, scale_cap: int = _MAX_W) -> by
     """Draw containers + boxes + arrows to a PNG and return its bytes (empty if nothing)."""
     boxes: dict[str, Shape] = {}
     containers: list[Shape] = []
+    frames: list[Shape] = []
     arrows: list[Shape] = []
     texts: list[Shape] = []
     for a in actions:
@@ -77,6 +79,8 @@ def render_actions(actions: list[AgentAction], *, scale_cap: int = _MAX_W) -> by
             boxes[s.id] = s
         elif s.type == "container":
             containers.append(s)
+        elif s.type == "frame":
+            frames.append(s)
         elif s.type == "arrow":
             arrows.append(s)
         elif s.type == "text":
@@ -86,7 +90,7 @@ def render_actions(actions: list[AgentAction], *, scale_cap: int = _MAX_W) -> by
         return b""
 
     # World bounds → canvas transform (shift into view, then scale to fit width).
-    rects = list(boxes.values()) + containers + texts
+    rects = list(boxes.values()) + containers + frames + texts
     min_x = min(s.x for s in rects)
     min_y = min(s.y for s in rects)
     max_x = max(s.x + s.w for s in rects)
@@ -108,10 +112,17 @@ def render_actions(actions: list[AgentAction], *, scale_cap: int = _MAX_W) -> by
     line_h = max(12, int(18 * scale))
 
     heading_font = _font(max(14, int(24 * scale)))
-    for s in texts:  # loose text (e.g. the diagram title)
+    # The outer frame sits under everything, with the diagram title in its header band.
+    for s in frames:
+        draw.rectangle(
+            [tx(s.x), ty(s.y), tx(s.x + s.w), ty(s.y + s.h)], outline=_FRAME_LINE, width=2
+        )
+        if s.text:
+            draw.text((tx(s.x) + 20, ty(s.y) + 16), s.text[:80], fill=_TEXT, font=heading_font)
+    for s in texts:  # loose text (e.g. a standalone heading)
         draw.text((tx(s.x), ty(s.y)), (s.text or "")[:80], fill=_TEXT, font=heading_font)
 
-    # Containers first (they sit under everything), then boxes, then arrows on top.
+    # Containers next (they sit under their members), then boxes, then arrows on top.
     for s in containers:
         x0, y0, x1, y1 = tx(s.x), ty(s.y), tx(s.x + s.w), ty(s.y + s.h)
         fill, line = _tints(s)
@@ -125,8 +136,11 @@ def render_actions(actions: list[AgentAction], *, scale_cap: int = _MAX_W) -> by
         if s.kind == "decision":
             cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
             draw.polygon([(cx, y0), (x1, cy), (cx, y1), (x0, cy)], fill=fill, outline=line)
-        else:
-            draw.rectangle([x0, y0, x1, y1], fill=fill, outline=line, width=2)
+            # Centred, like the client draws it — a top-left label would sit outside the
+            # diamond and the vision Critic would report a defect that isn't there.
+            draw.text((cx, cy), (s.text or "")[:24], fill=_TEXT, font=font, anchor="mm")
+            continue
+        draw.rectangle([x0, y0, x1, y1], fill=fill, outline=line, width=2)
         lines = (s.text or "").split("\n")
         if s.subtitle:
             lines.append(s.subtitle)
