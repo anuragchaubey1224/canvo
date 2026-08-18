@@ -52,11 +52,12 @@ async def _messages_roundtrip():
 async def _history_and_lifecycle():
     engine, sm = await _db()
     async with sm() as db:
-        first = await repo.create_session(db, title="First")
-        second = await repo.create_session(db, title="Second")
+        owner = await repo.create_user(db, "owner@example.com", "hash")
+        first = await repo.create_session(db, title="First", user_id=owner.id)
+        second = await repo.create_session(db, title="Second", user_id=owner.id)
         await repo.add_message(db, second.id, "user", "hello")
 
-        history = await repo.list_sessions(db)
+        history = await repo.list_sessions(db, owner.id)
         assert {s.title for s, _ in history} == {"First", "Second"}
         counts = {s.title: n for s, n in history}
         assert counts["Second"] == 1 and counts["First"] == 0

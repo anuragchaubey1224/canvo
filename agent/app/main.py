@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -21,8 +22,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.deps import current_user
+from app.auth.router import router as auth_router
 from app.db import repo
 from app.db.engine import get_db, init_db
+from app.db.models import User
 from app.graph.build import graph
 from app.schema import AgentInput
 
@@ -44,13 +48,24 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Canvo Agent Service", version="0.0.1", lifespan=lifespan)
 
-# Phase 0: open CORS for local dev. TODO: lock to the web origin before deploy.
+# Session cookies require an explicit origin allow-list: a browser refuses to send
+# credentials to a wildcard origin, and accepting "*" with credentials would let any site
+# read a signed-in user's diagrams. Set ALLOWED_ORIGINS in production.
+_ORIGINS = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 
 @app.get("/health")
@@ -72,44 +87,58 @@ class MessageIn(BaseModel):
     activity: dict | None = None  # the run trace: spec, plan, critique passes
 
 
+# Every route below takes `current_user`. Identity is a parameter, not ambient state, so
+# a route that forgets to scope its query has no user id to filter by and fails review
+# rather than quietly serving someone else's diagrams.
 @app.post("/sessions")
-async def create_session(db: AsyncSession = Depends(get_db)):
-    """Create a session; the client stores its id and autosaves snapshots to it."""
-    s = await repo.create_session(db)
+async def create_session(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    """Create a diagram owned by the caller."""
+    s = await repo.create_session(db, user_id=user.id)
     return {"id": s.id, "title": s.title}
 
 
 @app.get("/sessions")
-async def list_sessions(db: AsyncSession = Depends(get_db)):
+async def list_sessions(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
     """Conversation history — a session is a chat and the canvas it produced."""
     return [
         {
             "id": s.id,
             "title": s.title,
+            "created_at": s.created_at.isoformat(),
             "updated_at": s.updated_at.isoformat(),
             "messages": n,
+            "has_canvas": bool(s.snapshot),
         }
-        for s, n in await repo.list_sessions(db)
+        for s, n in await repo.list_sessions(db, user.id)
     ]
 
 
 @app.patch("/sessions/{session_id}")
-async def rename_session(session_id: str, body: TitleIn, db: AsyncSession = Depends(get_db)):
-    s = await repo.rename_session(db, session_id, body.title)
+async def rename_session(
+    session_id: str,
+    body: TitleIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await repo.rename_session(db, session_id, body.title, user.id)
     if s is None:
         raise HTTPException(status_code=404, detail="session not found")
     return {"id": s.id, "title": s.title}
 
 
 @app.delete("/sessions/{session_id}")
-async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
-    if not await repo.delete_session(db, session_id):
+async def delete_session(
+    session_id: str, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    if not await repo.delete_session(db, session_id, user.id):
         raise HTTPException(status_code=404, detail="session not found")
     return {"ok": True}
 
 
 @app.get("/sessions/{session_id}/messages")
-async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+async def get_messages(
+    session_id: str, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
     return [
         {
             "id": m.id,
@@ -118,37 +147,49 @@ async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
             "activity": json.loads(m.activity) if m.activity else None,
             "created_at": m.created_at.isoformat(),
         }
-        for m in await repo.list_messages(db, session_id)
+        for m in await repo.list_messages(db, session_id, user.id)
     ]
 
 
 @app.post("/sessions/{session_id}/messages")
-async def post_message(session_id: str, body: MessageIn, db: AsyncSession = Depends(get_db)):
+async def post_message(
+    session_id: str,
+    body: MessageIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
     activity = json.dumps(body.activity) if body.activity is not None else None
-    m = await repo.add_message(db, session_id, body.role, body.text, activity)
+    m = await repo.add_message(db, session_id, body.role, body.text, activity, user.id)
     if m is None:
         raise HTTPException(status_code=404, detail="session not found")
     return {"id": m.id, "created_at": m.created_at.isoformat()}
 
 
 @app.get("/sessions/{session_id}/snapshot")
-async def get_snapshot(session_id: str, db: AsyncSession = Depends(get_db)):
-    s = await repo.get_session(db, session_id)
+async def get_snapshot(
+    session_id: str, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    s = await repo.get_session(db, session_id, user.id)
     if s is None:
         raise HTTPException(status_code=404, detail="session not found")
     return {"snapshot": s.snapshot}
 
 
 @app.put("/sessions/{session_id}/snapshot")
-async def put_snapshot(session_id: str, body: SnapshotIn, db: AsyncSession = Depends(get_db)):
-    s = await repo.save_snapshot(db, session_id, body.snapshot)
+async def put_snapshot(
+    session_id: str,
+    body: SnapshotIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await repo.save_snapshot(db, session_id, body.snapshot, user.id)
     if s is None:
         raise HTTPException(status_code=404, detail="session not found")
     return {"ok": True, "updated_at": s.updated_at.isoformat()}
 
 
 @app.post("/agent/stream")
-async def agent_stream(payload: AgentInput):
+async def agent_stream(payload: AgentInput, user: User = Depends(current_user)):
     """Run the graph and stream the run as Server-Sent Events.
 
     Consumes `graph.astream(...)` (our engine yields `(node, update)` per step), so the

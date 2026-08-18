@@ -20,10 +20,45 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    """An account. Email is the identity; `email` is stored already lower-cased and
+    stripped so the UNIQUE index is the case-insensitivity guarantee, rather than hoping
+    every call site remembers to normalise."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AuthSession(Base):
+    """A logged-in browser.
+
+    The row is keyed by the SHA-256 of the token, never the token itself: a leaked
+    database then contains nothing anyone can log in with. Expiry is stored rather than
+    inferred so a session can be cut short (logout, password change) by deleting the row.
+    """
+
+    __tablename__ = "auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Nullable so diagrams created before accounts existed still load; every new one is
+    # owned, and the read paths filter on it.
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(200), default="Untitled")
     # Latest tldraw store snapshot (JSON), so a reload restores the canvas.
     snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)

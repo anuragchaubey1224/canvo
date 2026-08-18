@@ -9,6 +9,10 @@ pyyaml>=6.0            # parse YAML OpenAPI specs
 sqlalchemy[asyncio]>=2.0
 aiosqlite>=0.20
 
+# Auth — Argon2id password hashing (OWASP's current recommendation). Sessions are opaque
+# random tokens in httpOnly cookies, so there is no JWT library here on purpose.
+argon2-cffi>=23.1
+
 # LLM clients — provider abstraction + BYOK (Anthropic direct, or any OpenAI-compatible gateway)
 langchain-anthropic>=0.2
 langchain-openai>=0.2
