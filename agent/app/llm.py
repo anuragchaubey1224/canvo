@@ -78,6 +78,30 @@ def resolve_config(user_override: dict | None = None, *, role: str | None = None
     return cfg
 
 
+# How to ask for a typed answer, in order of preference. Providers differ in which they
+# honour behind an OpenAI-compatible gateway, and a refusal is indistinguishable from a bad
+# answer at the call site — so try the next one rather than give up.
+_METHODS = ("function_calling", "json_schema")
+
+
+async def structured_call(cfg: LLMConfig, system: str, human: str, schema, stage: str):
+    """One typed request, retried across structured-output methods. None if all fail."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    for method in _METHODS:
+        try:
+            model = build_chat_model(cfg).with_structured_output(schema, method=method)
+            result = await model.ainvoke([("system", system), ("human", human)])
+        except Exception:
+            logger.warning("%s failed via %s (model=%s)", stage, method, cfg.model, exc_info=True)
+            continue
+        if isinstance(result, schema):
+            return result
+        logger.warning("%s returned an unusable shape via %s", stage, method)
+    return None
+
+
 def build_chat_model(cfg: LLMConfig):
     """Return a LangChain chat model for the resolved provider.
 

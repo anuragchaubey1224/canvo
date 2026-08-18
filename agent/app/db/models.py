@@ -62,6 +62,9 @@ class Session(Base):
     title: Mapped[str] = mapped_column(String(200), default="Untitled")
     # Latest tldraw store snapshot (JSON), so a reload restores the canvas.
     snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The DiagramPlan behind that canvas, as JSON. This is what a follow-up prompt edits:
+    # the shapes are derived output, and re-deriving intent from them would be guesswork.
+    plan: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now

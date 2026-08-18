@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator
@@ -25,13 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import current_user
 from app.auth.router import router as auth_router
 from app.db import repo
-from app.db.engine import get_db, init_db
+from app.db.engine import get_db, init_db, session_factory
 from app.db.models import User
 from app.graph.build import graph
+from app.graph.planner_llm import DiagramPlan
 from app.schema import AgentInput
 
 # Read agent/.env (API keys, provider config) before any request resolves LLM config.
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Shapes are staggered onto the canvas so a diagram appears to draw itself. It's a total
 # budget shared by the whole diagram — a per-shape constant makes big diagrams feel slow
@@ -205,8 +209,20 @@ async def agent_stream(payload: AgentInput, user: User = Depends(current_user)):
     reads what the model filled in before judging the picture it drew.
     """
 
+    # The diagram already on screen, read from the session rather than taken from the
+    # client: the server decides what a follow-up is allowed to edit.
+    base_plan: DiagramPlan | None = None
+    async with session_factory()() as db:
+        stored = await repo.get_plan(db, payload.session_id, user.id)
+    if stored:
+        try:
+            base_plan = DiagramPlan.model_validate_json(stored)
+        except Exception:
+            base_plan = None  # written by an older schema — treat this prompt as a create
+
     async def event_gen():
         state = {
+            "base_plan": base_plan,
             "user_message": payload.message,
             "payload": payload.payload,
             "input_kind": payload.input_kind,
@@ -287,6 +303,23 @@ async def agent_stream(payload: AgentInput, user: User = Depends(current_user)):
                     + "\n\n"
                 )
                 await asyncio.sleep(0.05)
+
+        # Persist the plan this run settled on, so the next prompt edits it instead of
+        # starting over. Failure here must not break the response — the diagram is drawn.
+        final_plan = state.get("llm_plan")
+        if isinstance(final_plan, DiagramPlan):
+            try:
+                async with session_factory()() as db:
+                    await repo.save_plan(
+                        db,
+                        payload.session_id,
+                        final_plan.model_dump_json(exclude_none=True),
+                        user.id,
+                    )
+            except Exception:
+                logger.warning(
+                    "could not persist the plan for %s", payload.session_id, exc_info=True
+                )
 
         refined = len(passes) > 1
         yield (

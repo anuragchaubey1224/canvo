@@ -32,6 +32,11 @@ class PlanReportDict(TypedDict, total=False):
     fixes: list[str]  # deterministic repairs applied before validation
     repaired: bool  # did an LLM repair pass run and improve the plan?
     degraded: str  # non-empty when a stage failed and a fallback drew the diagram
+    # Follow-up edits: what the request was read as, and what actually changed.
+    intent: str  # "create" | "edit" | "replace"
+    applied: list[str]
+    rejected: list[str]
+    summary: str
 
 
 class Critique(TypedDict, total=False):
@@ -55,6 +60,8 @@ class AgentState(TypedDict, total=False):
     input_kind: str  # "text" | "sql" | "openapi" | "code"
     parsed: ParsedSchema | None
     parsed_api: ParsedAPI | None
+    # the diagram already on screen, loaded from the session — what a follow-up edits
+    base_plan: DiagramPlan | None
     # set by the Spec Writer (freeform text only)
     spec: DiagramSpec | None
     llm_plan: DiagramPlan | None

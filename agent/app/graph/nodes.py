@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import logging
 
+from app.graph.apply_ops import apply_ops
 from app.graph.critic_vision import critique_image
 from app.graph.critique import analyze_geometry, geometry_summary
+from app.graph.edit_llm import propose_edit
 from app.graph.layout import build_api_actions, build_erd_actions, build_graph_actions
 from app.graph.planner_llm import plan_from_text, refine_plan
 from app.graph.route import route_arrows
@@ -61,12 +63,84 @@ def router(state: AgentState) -> AgentState:
     return {"input_kind": forced or "text", "parsed": None}
 
 
+async def editor(state: AgentState) -> AgentState:
+    """Read a follow-up prompt as changes to the diagram already on screen.
+
+    Only runs when there IS one. On success it hands the planner a finished plan and the
+    Specifier and Planner both step aside — a follow-up is one LLM call, not three, and
+    skips the Spec Writer entirely.
+
+    Every failure path leaves the diagram alone rather than guessing: no key, a failed
+    call, or ops that all get rejected all fall through to... nothing. `base_plan` stays
+    the plan, and the caller sees why in the trace.
+    """
+    if state.get("input_kind") != "text":
+        return {}
+    base = state.get("base_plan")
+    if not base or not base.nodes:
+        return {}
+
+    request = (state.get("payload") or state.get("user_message") or "").strip()
+    if not request:
+        return {}
+
+    edit = await propose_edit(base, request, state.get("llm_override"))
+    if edit is None:
+        logger.warning("edit stage failed; falling through to a fresh generation")
+        return {}
+    if edit.intent == "replace":
+        # The request is about something else. Drop the context and let the create path
+        # run, rather than forcing unrelated ops onto an unrelated diagram.
+        return {"base_plan": None}
+
+    result = apply_ops(base, edit.ops)
+    fixes = sanitize(result.plan)
+    report = validate(result.plan)
+
+    if not result.plan.nodes:
+        # An edit that empties the diagram is a mistake, not an instruction.
+        logger.warning("edit would have left an empty diagram; keeping the previous one")
+        result = apply_ops(base, [])
+        result.rejected.append("that would have removed the whole diagram")
+
+    plan_report: PlanReportDict = {
+        "nodes": len(result.plan.nodes),
+        "edges": len(result.plan.edges),
+        "groups": len(result.plan.groups),
+        "issues": [
+            {"kind": i.kind, "severity": i.severity, "message": i.message} for i in report.issues
+        ],
+        "fixes": fixes,
+        "repaired": False,
+        "degraded": "",
+        "intent": "edit",
+        "applied": result.applied,
+        "rejected": result.rejected,
+        "summary": edit.summary or "",
+    }
+    return {
+        "llm_plan": result.plan,
+        "plan_report": plan_report,
+        "plan": {
+            "nodes": [
+                {"id": n.id, "label": n.label, "kind": n.kind, "group": n.group}
+                for n in result.plan.nodes
+            ],
+            "edges": [{"from": e.source, "to": e.target} for e in result.plan.edges],
+            "groups": [{"id": g.id, "label": g.label} for g in result.plan.groups],
+            "notes": "edited the existing diagram",
+        },
+    }
+
+
 async def specifier(state: AgentState) -> AgentState:
     """Freeform text → an explicit diagram spec. No-op on every other path.
 
     SQL and OpenAPI inputs are already specifications, so they skip this entirely — the
     stage exists purely to give vague prose the structure the planner needs.
     """
+    if state.get("llm_plan"):
+        return {}  # the Editor already produced a plan; there is nothing to specify
     if state.get("input_kind") != "text" or not state.get("spec_enabled", True):
         return {}
 
@@ -80,6 +154,8 @@ async def specifier(state: AgentState) -> AgentState:
 
 async def planner(state: AgentState) -> AgentState:
     """Turn intent + parsed input into a plan. Touches no shapes."""
+    if state.get("llm_plan"):
+        return {}  # an edit already settled what to draw
     parsed = state.get("parsed")
     if parsed and parsed.tables:
         return {
@@ -145,6 +221,10 @@ async def planner(state: AgentState) -> AgentState:
                 "fixes": fixes,
                 "repaired": repaired,
                 "degraded": degraded,
+                "intent": "create",
+                "applied": [],
+                "rejected": [],
+                "summary": "",
             }
             return {
                 "llm_plan": llm_plan,

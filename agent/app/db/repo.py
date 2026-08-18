@@ -51,6 +51,22 @@ async def save_snapshot(
     return obj
 
 
+async def get_plan(db: AsyncSession, session_id: str, user_id: str | None = None) -> str | None:
+    """The stored DiagramPlan JSON for a diagram, if it has one."""
+    obj = await get_session(db, session_id, user_id)
+    return obj.plan if obj else None
+
+
+async def save_plan(
+    db: AsyncSession, session_id: str, plan_json: str, user_id: str | None = None
+) -> None:
+    obj = await get_session(db, session_id, user_id)
+    if obj is None:
+        return
+    obj.plan = plan_json
+    await db.commit()
+
+
 async def list_sessions(
     db: AsyncSession, user_id: str, limit: int = 50
 ) -> list[tuple[Session, int]]:

@@ -58,8 +58,9 @@ def _add_missing_columns(conn) -> None:
     if "sessions" not in inspector.get_table_names():
         return
     existing = {col["name"] for col in inspector.get_columns("sessions")}
-    if "user_id" not in existing:
-        conn.execute(text("ALTER TABLE sessions ADD COLUMN user_id VARCHAR(36)"))
+    for column, ddl in (("user_id", "VARCHAR(36)"), ("plan", "TEXT")):
+        if column not in existing:
+            conn.execute(text(f"ALTER TABLE sessions ADD COLUMN {column} {ddl}"))
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
