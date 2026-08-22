@@ -60,6 +60,10 @@ export class PanelUtil extends ShapeUtil<PanelShape> {
   }
 
   override component(shape: PanelShape) {
+    // Not a React class component: tldraw calls `component()` from inside its own stable
+    // per-shape function-component wrapper, so this hook runs in a consistent position on
+    // every render — the standard tldraw ShapeUtil pattern, safe despite the syntax.
+    // oxlint-disable-next-line react/rules-of-hooks
     const dark = useValue('isDark', () => this.editor.user.getIsDarkMode(), [this.editor])
     const t = shapeTheme(dark)
     const a = accent(shape.props.accent, dark)
