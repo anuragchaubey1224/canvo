@@ -1,0 +1,21 @@
+{
+  "id": "openapi-many-groups-needs-grid",
+  "category": "openapi",
+  "description": "Six tagged groups wrap past one row of the API-surface grid — exercises layout + routing at scale.",
+  "input": {
+    "spec": "{\"openapi\": \"3.0.0\", \"info\": {\"title\": \"Platform API\"}, \"paths\": {\"/users\": {\"get\": {\"tags\": [\"users\"]}, \"post\": {\"tags\": [\"users\"]}}, \"/orders\": {\"get\": {\"tags\": [\"orders\"]}, \"post\": {\"tags\": [\"orders\"]}}, \"/payments\": {\"get\": {\"tags\": [\"payments\"]}, \"post\": {\"tags\": [\"payments\"]}}, \"/shipping\": {\"get\": {\"tags\": [\"shipping\"]}, \"post\": {\"tags\": [\"shipping\"]}}, \"/notifications\": {\"get\": {\"tags\": [\"notifications\"]}, \"post\": {\"tags\": [\"notifications\"]}}, \"/admin\": {\"get\": {\"tags\": [\"admin\"]}, \"post\": {\"tags\": [\"admin\"]}}}}"
+  },
+  "expect": {
+    "nodes_min": 7,
+    "nodes_max": 7,
+    "edges_min": 6,
+    "edges_max": 6,
+    "must_contain": [
+      "api-root", "grp-users", "grp-orders", "grp-payments",
+      "grp-shipping", "grp-notifications", "grp-admin"
+    ],
+    "must_connect": [["api-root", "grp-payments"], ["api-root", "grp-admin"]],
+    "clean": true,
+    "max_refines": 2
+  }
+}

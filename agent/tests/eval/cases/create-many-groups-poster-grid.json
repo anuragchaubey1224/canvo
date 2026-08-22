@@ -1,0 +1,56 @@
+{
+  "id": "create-many-groups-poster-grid",
+  "category": "create",
+  "description": "Three phases x three nodes, cross-group flow — exercises compose.py's column grid and route_arrows at a moderate, realistic scale.",
+  "input": {
+    "request": "draw a microservice architecture with an ingress layer, three core services and their datastores",
+    "plan": {
+      "title": "Platform Architecture",
+      "nodes": [
+        {"id": "lb", "label": "Load Balancer", "kind": "service", "group": "ingress"},
+        {"id": "gw", "label": "API Gateway", "kind": "service", "group": "ingress"},
+        {"id": "auth", "label": "Auth Service", "kind": "service", "group": "ingress"},
+        {"id": "orders", "label": "Orders Service", "kind": "service", "group": "core"},
+        {"id": "inventory", "label": "Inventory Service", "kind": "service", "group": "core"},
+        {"id": "users", "label": "Users Service", "kind": "service", "group": "core"},
+        {"id": "db", "label": "Primary Database", "kind": "datastore", "group": "data"},
+        {"id": "cache", "label": "Cache", "kind": "datastore", "group": "data"},
+        {"id": "queue", "label": "Event Queue", "kind": "queue", "group": "data"}
+      ],
+      "edges": [
+        {"source": "lb", "target": "gw"},
+        {"source": "gw", "target": "auth"},
+        {"source": "gw", "target": "orders"},
+        {"source": "gw", "target": "inventory"},
+        {"source": "gw", "target": "users"},
+        {"source": "orders", "target": "db"},
+        {"source": "inventory", "target": "cache"},
+        {"source": "users", "target": "queue"}
+      ],
+      "groups": [
+        {"id": "ingress", "label": "1. Ingress"},
+        {"id": "core", "label": "2. Core Services"},
+        {"id": "data", "label": "3. Data"}
+      ]
+    }
+  },
+  "expect": {
+    "nodes_min": 9,
+    "nodes_max": 9,
+    "edges_min": 8,
+    "edges_max": 8,
+    "must_contain": [
+      "n-lb", "n-gw", "n-auth", "n-orders", "n-inventory", "n-users", "n-db", "n-cache", "n-queue"
+    ],
+    "must_connect": [
+      ["n-lb", "n-gw"],
+      ["n-gw", "n-orders"],
+      ["n-orders", "n-db"],
+      ["n-users", "n-queue"]
+    ],
+    "clean": true,
+    "blocking_issues_max": 0,
+    "max_refines": 2,
+    "intent": "create"
+  }
+}

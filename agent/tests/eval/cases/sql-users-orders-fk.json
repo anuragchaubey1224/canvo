@@ -1,0 +1,17 @@
+{
+  "id": "sql-users-orders-fk",
+  "category": "sql",
+  "description": "Two tables, one inline FK — the baseline ERD case.",
+  "input": {
+    "ddl": "CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    email VARCHAR(255) NOT NULL\n);\nCREATE TABLE orders (\n    id SERIAL PRIMARY KEY,\n    user_id INTEGER NOT NULL REFERENCES users(id)\n);"
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["tbl-users", "tbl-orders"],
+    "must_connect": [["tbl-orders", "tbl-users"]],
+    "clean": true
+  }
+}

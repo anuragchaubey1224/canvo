@@ -1,0 +1,41 @@
+{
+  "id": "edit-add-node-and-wire",
+  "category": "edit",
+  "description": "add_node + add_edge in one batch — the new node must land wired in, not floating.",
+  "input": {
+    "base_plan": {
+      "title": "Web Persistence",
+      "nodes": [
+        {"id": "client", "label": "Client", "kind": "client", "group": "g1"},
+        {"id": "api", "label": "API Gateway", "kind": "service", "group": "g1"},
+        {"id": "db", "label": "Primary Database", "group": "g2"},
+        {"id": "cache", "label": "In-Memory Cache", "group": "g2"}
+      ],
+      "edges": [
+        {"source": "client", "target": "api", "label": "request"},
+        {"source": "api", "target": "db", "label": "write"},
+        {"source": "api", "target": "cache", "label": "read"}
+      ],
+      "groups": [
+        {"id": "g1", "label": "1. Edge"},
+        {"id": "g2", "label": "2. Storage"}
+      ]
+    },
+    "intent": "edit",
+    "request": "add an event queue fed by the gateway",
+    "ops": [
+      {"op": "add_node", "id": "queue", "label": "Event Queue", "kind": "queue", "group": "g2"},
+      {"op": "add_edge", "source": "api", "target": "queue", "label": "publish"}
+    ]
+  },
+  "expect": {
+    "nodes_min": 5,
+    "nodes_max": 5,
+    "edges_min": 4,
+    "edges_max": 4,
+    "must_contain": ["n-client", "n-api", "n-db", "n-cache", "n-queue"],
+    "must_connect": [["n-api", "n-queue"]],
+    "clean": true,
+    "intent": "edit"
+  }
+}

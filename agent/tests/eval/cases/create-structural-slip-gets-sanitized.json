@@ -1,0 +1,38 @@
+{
+  "id": "create-structural-slip-gets-sanitized",
+  "category": "create",
+  "description": "A deliberately dirty raw plan — a duplicate node id, a self-loop, a dangling edge, a duplicate edge, and a reference to a group that doesn't exist. sanitize() must repair all five in code, with no LLM repair pass needed.",
+  "input": {
+    "request": "draw a three step pipeline: start, process, end",
+    "plan": {
+      "title": "Pipeline",
+      "nodes": [
+        {"id": "a", "label": "Start", "kind": "start"},
+        {"id": "a", "label": "Start Duplicate", "kind": "start"},
+        {"id": "b", "label": "Process", "kind": "service", "group": "ghost-group"},
+        {"id": "c", "label": "End", "kind": "end"}
+      ],
+      "edges": [
+        {"source": "a", "target": "b"},
+        {"source": "b", "target": "c"},
+        {"source": "b", "target": "b"},
+        {"source": "c", "target": "ghost"},
+        {"source": "a", "target": "b"}
+      ],
+      "groups": []
+    }
+  },
+  "expect": {
+    "nodes_min": 3,
+    "nodes_max": 3,
+    "edges_min": 2,
+    "edges_max": 2,
+    "must_contain": ["n-a", "n-b", "n-c"],
+    "must_connect": [["n-a", "n-b"], ["n-b", "n-c"]],
+    "clean": true,
+    "blocking_issues_max": 0,
+    "min_repairs": 5,
+    "max_repairs": 5,
+    "intent": "create"
+  }
+}

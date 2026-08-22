@@ -1,0 +1,17 @@
+{
+  "id": "openapi-shop-two-groups",
+  "category": "openapi",
+  "description": "Two tagged groups — the baseline API-surface case.",
+  "input": {
+    "spec": "{\"openapi\": \"3.0.0\", \"info\": {\"title\": \"Shop API\"}, \"paths\": {\"/users\": {\"get\": {\"tags\": [\"users\"]}}, \"/orders\": {\"post\": {\"tags\": [\"orders\"]}}}}"
+  },
+  "expect": {
+    "nodes_min": 3,
+    "nodes_max": 3,
+    "edges_min": 2,
+    "edges_max": 2,
+    "must_contain": ["api-root", "grp-users", "grp-orders"],
+    "must_connect": [["api-root", "grp-users"], ["api-root", "grp-orders"]],
+    "clean": true
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "edit-replace-intent-falls-back-to-stub",
+  "category": "edit",
+  "description": "intent='replace' drops the diagram context and hands off to the create path — which, with no LLM key configured, safely lands on the deterministic two-box stub (not a crash, not a stale diagram).",
+  "input": {
+    "base_plan": {
+      "title": "Web Persistence",
+      "nodes": [
+        {"id": "client", "label": "Client", "kind": "client", "group": "g1"},
+        {"id": "api", "label": "API Gateway", "kind": "service", "group": "g1"},
+        {"id": "db", "label": "Primary Database", "group": "g2"},
+        {"id": "cache", "label": "In-Memory Cache", "group": "g2"}
+      ],
+      "edges": [
+        {"source": "client", "target": "api", "label": "request"},
+        {"source": "api", "target": "db", "label": "write"},
+        {"source": "api", "target": "cache", "label": "read"}
+      ],
+      "groups": [
+        {"id": "g1", "label": "1. Edge"},
+        {"id": "g2", "label": "2. Storage"}
+      ]
+    },
+    "intent": "replace",
+    "request": "actually, forget that — draw me a shopping cart checkout flow instead",
+    "ops": []
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["a", "b"],
+    "must_connect": [["a", "b"]],
+    "clean": true
+  }
+}

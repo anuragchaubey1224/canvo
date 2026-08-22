@@ -1,0 +1,35 @@
+{
+  "id": "edit-answer-intent-draws-nothing",
+  "category": "edit",
+  "description": "A question about the diagram must answer in chat and change nothing on the canvas.",
+  "input": {
+    "base_plan": {
+      "title": "Web Persistence",
+      "nodes": [
+        {"id": "client", "label": "Client", "kind": "client", "group": "g1"},
+        {"id": "api", "label": "API Gateway", "kind": "service", "group": "g1"},
+        {"id": "db", "label": "Primary Database", "group": "g2"},
+        {"id": "cache", "label": "In-Memory Cache", "group": "g2"}
+      ],
+      "edges": [
+        {"source": "client", "target": "api", "label": "request"},
+        {"source": "api", "target": "db", "label": "write"},
+        {"source": "api", "target": "cache", "label": "read"}
+      ],
+      "groups": [
+        {"id": "g1", "label": "1. Edge"},
+        {"id": "g2", "label": "2. Storage"}
+      ]
+    },
+    "intent": "answer",
+    "request": "why is the cache read before the database?",
+    "ops": [],
+    "reply": "The gateway checks the cache first and only falls through to the database on a miss."
+  },
+  "expect": {
+    "nodes_max": 0,
+    "edges_max": 0,
+    "intent": "answer",
+    "reply_contains": "cache"
+  }
+}

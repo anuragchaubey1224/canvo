@@ -1,0 +1,41 @@
+{
+  "id": "edit-update-node-kind",
+  "category": "edit",
+  "description": "Turning the database and cache into cylinders must not touch anything else (the reported bug in edit_llm.py's docstring).",
+  "input": {
+    "base_plan": {
+      "title": "Web Persistence",
+      "nodes": [
+        {"id": "client", "label": "Client", "kind": "client", "group": "g1"},
+        {"id": "api", "label": "API Gateway", "kind": "service", "group": "g1"},
+        {"id": "db", "label": "Primary Database", "group": "g2"},
+        {"id": "cache", "label": "In-Memory Cache", "group": "g2"}
+      ],
+      "edges": [
+        {"source": "client", "target": "api", "label": "request"},
+        {"source": "api", "target": "db", "label": "write"},
+        {"source": "api", "target": "cache", "label": "read"}
+      ],
+      "groups": [
+        {"id": "g1", "label": "1. Edge"},
+        {"id": "g2", "label": "2. Storage"}
+      ]
+    },
+    "intent": "edit",
+    "request": "turn the database and cache into cylinders",
+    "ops": [
+      {"op": "update_node", "id": "db", "kind": "datastore"},
+      {"op": "update_node", "id": "cache", "kind": "datastore"}
+    ]
+  },
+  "expect": {
+    "nodes_min": 4,
+    "nodes_max": 4,
+    "edges_min": 3,
+    "edges_max": 3,
+    "must_contain": ["n-client", "n-api", "n-db", "n-cache"],
+    "must_connect": [["n-client", "n-api"], ["n-api", "n-db"], ["n-api", "n-cache"]],
+    "clean": true,
+    "intent": "edit"
+  }
+}

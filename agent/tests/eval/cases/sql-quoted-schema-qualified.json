@@ -1,0 +1,17 @@
+{
+  "id": "sql-quoted-schema-qualified",
+  "category": "sql",
+  "description": "Quoted, schema-qualified identifiers must resolve to their bare table name.",
+  "input": {
+    "ddl": "CREATE TABLE \"public\".\"accounts\" (\n    \"id\" SERIAL PRIMARY KEY,\n    \"name\" VARCHAR(100) NOT NULL\n);\nCREATE TABLE \"public\".\"sessions\" (\n    \"id\" SERIAL PRIMARY KEY,\n    \"account_id\" INTEGER NOT NULL REFERENCES \"public\".\"accounts\"(\"id\")\n);"
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["tbl-accounts", "tbl-sessions"],
+    "must_connect": [["tbl-sessions", "tbl-accounts"]],
+    "clean": true
+  }
+}

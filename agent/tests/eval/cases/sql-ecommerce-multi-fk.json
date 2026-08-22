@@ -1,0 +1,21 @@
+{
+  "id": "sql-ecommerce-multi-fk",
+  "category": "sql",
+  "description": "Four tables, three FKs — a small e-commerce schema (order_items fans out to two parents).",
+  "input": {
+    "ddl": "CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    email VARCHAR(255) NOT NULL\n);\nCREATE TABLE products (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(255) NOT NULL,\n    price_cents INTEGER NOT NULL\n);\nCREATE TABLE orders (\n    id SERIAL PRIMARY KEY,\n    user_id INTEGER NOT NULL REFERENCES users(id)\n);\nCREATE TABLE order_items (\n    id SERIAL PRIMARY KEY,\n    order_id INTEGER NOT NULL REFERENCES orders(id),\n    product_id INTEGER NOT NULL REFERENCES products(id),\n    quantity INTEGER NOT NULL\n);"
+  },
+  "expect": {
+    "nodes_min": 4,
+    "nodes_max": 4,
+    "edges_min": 3,
+    "edges_max": 3,
+    "must_contain": ["tbl-users", "tbl-products", "tbl-orders", "tbl-order-items"],
+    "must_connect": [
+      ["tbl-orders", "tbl-users"],
+      ["tbl-order-items", "tbl-orders"],
+      ["tbl-order-items", "tbl-products"]
+    ],
+    "clean": true
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "create-reference-panel-not-isolated",
+  "category": "create",
+  "description": "Three cards in one group with no internal edges at all is a legitimate reference panel (validate_plan.py's 'Token Anatomy' carve-out) — none of them should be flagged as isolated.",
+  "input": {
+    "request": "draw a token anatomy panel: header, payload, signature",
+    "plan": {
+      "title": "Token Anatomy",
+      "nodes": [
+        {"id": "header", "label": "Header", "kind": "note", "group": "anatomy"},
+        {"id": "payload", "label": "Payload", "kind": "note", "group": "anatomy"},
+        {"id": "signature", "label": "Signature", "kind": "note", "group": "anatomy"}
+      ],
+      "edges": [],
+      "groups": [{"id": "anatomy", "label": "1. Token Anatomy"}]
+    }
+  },
+  "expect": {
+    "nodes_min": 3,
+    "nodes_max": 3,
+    "edges_min": 0,
+    "edges_max": 0,
+    "must_contain": ["n-header", "n-payload", "n-signature"],
+    "clean": true,
+    "blocking_issues_max": 0,
+    "intent": "create"
+  }
+}

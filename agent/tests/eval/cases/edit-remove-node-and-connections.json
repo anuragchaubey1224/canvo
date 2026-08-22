@@ -1,0 +1,39 @@
+{
+  "id": "edit-remove-node-and-connections",
+  "category": "edit",
+  "description": "remove_node must take its edges with it, and only its edges.",
+  "input": {
+    "base_plan": {
+      "title": "Web Persistence",
+      "nodes": [
+        {"id": "client", "label": "Client", "kind": "client", "group": "g1"},
+        {"id": "api", "label": "API Gateway", "kind": "service", "group": "g1"},
+        {"id": "db", "label": "Primary Database", "group": "g2"},
+        {"id": "cache", "label": "In-Memory Cache", "group": "g2"}
+      ],
+      "edges": [
+        {"source": "client", "target": "api", "label": "request"},
+        {"source": "api", "target": "db", "label": "write"},
+        {"source": "api", "target": "cache", "label": "read"}
+      ],
+      "groups": [
+        {"id": "g1", "label": "1. Edge"},
+        {"id": "g2", "label": "2. Storage"}
+      ]
+    },
+    "intent": "edit",
+    "request": "drop the database, we only need the cache",
+    "ops": [{"op": "remove_node", "id": "db"}]
+  },
+  "expect": {
+    "nodes_min": 3,
+    "nodes_max": 3,
+    "edges_min": 2,
+    "edges_max": 2,
+    "must_contain": ["n-client", "n-api", "n-cache"],
+    "must_not_contain": ["n-db"],
+    "must_connect": [["n-client", "n-api"], ["n-api", "n-cache"]],
+    "clean": true,
+    "intent": "edit"
+  }
+}

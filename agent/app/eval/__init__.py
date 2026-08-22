@@ -4,6 +4,7 @@ Application code, not test code: production writes records too, so this cannot l
 under tests/. Nothing here decides anything — it observes a run and describes it.
 """
 
+from app.eval.metrics import AggregateReport, aggregate
 from app.eval.record import RunRecord, record_from_run
 
-__all__ = ["RunRecord", "record_from_run"]
+__all__ = ["AggregateReport", "RunRecord", "aggregate", "record_from_run"]

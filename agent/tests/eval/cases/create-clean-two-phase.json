@@ -1,0 +1,38 @@
+{
+  "id": "create-clean-two-phase",
+  "category": "create",
+  "description": "A plan that fully covers its spec — every component present, every flow step an edge, every node grouped. The validator should find nothing.",
+  "input": {
+    "request": "draw an order pipeline with checkout, payment and a receipt notification",
+    "spec_markdown": "TITLE: Order Pipeline\nTYPE: workflow\nCOMPONENTS:\n- Checkout (client) - web\n- Payment Service (service) - POST /pay\n- Ledger (datastore) - -\n- Receipt Email (external) - -\nFLOW:\n1. Checkout -> Payment Service: charge\n2. Payment Service -> Ledger: record\n3. Payment Service -> Receipt Email: notify\nPHASES:\n1. Purchase: Checkout, Payment Service\n2. Settlement: Ledger, Receipt Email\nASSUMPTIONS:\n- Payments are card-only.\n",
+    "plan": {
+      "title": "Order Pipeline",
+      "nodes": [
+        {"id": "checkout", "label": "Checkout", "kind": "client", "group": "phase-1"},
+        {"id": "payment", "label": "Payment Service", "kind": "service", "group": "phase-1"},
+        {"id": "ledger", "label": "Ledger", "kind": "datastore", "group": "phase-2"},
+        {"id": "email", "label": "Receipt Email", "kind": "external", "group": "phase-2"}
+      ],
+      "edges": [
+        {"source": "checkout", "target": "payment", "label": "charge"},
+        {"source": "payment", "target": "ledger", "label": "record"},
+        {"source": "payment", "target": "email", "label": "notify"}
+      ],
+      "groups": [
+        {"id": "phase-1", "label": "1. Purchase"},
+        {"id": "phase-2", "label": "2. Settlement"}
+      ]
+    }
+  },
+  "expect": {
+    "nodes_min": 4,
+    "nodes_max": 4,
+    "edges_min": 3,
+    "edges_max": 3,
+    "must_contain": ["n-checkout", "n-payment", "n-ledger", "n-email"],
+    "must_connect": [["n-checkout", "n-payment"], ["n-payment", "n-ledger"], ["n-payment", "n-email"]],
+    "clean": true,
+    "blocking_issues_max": 0,
+    "intent": "create"
+  }
+}

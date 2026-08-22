@@ -98,14 +98,18 @@ async def editor(state: AgentState) -> AgentState:
         return {"answered": True, "reply": edit.reply.strip() or "No change needed."}
 
     result = apply_ops(base, edit.ops)
-    fixes = sanitize(result.plan)
-    report = validate(result.plan)
 
     if not result.plan.nodes:
         # An edit that empties the diagram is a mistake, not an instruction.
         logger.warning("edit would have left an empty diagram; keeping the previous one")
         result = apply_ops(base, [])
         result.rejected.append("that would have removed the whole diagram")
+
+    # Sanitize/validate whichever plan is actually kept — computing these before the empty
+    # check meant a refused edit reported the discarded plan's fixes and issues (e.g.
+    # "the plan has no nodes") against a diagram that, on screen, had neither problem.
+    fixes = sanitize(result.plan)
+    report = validate(result.plan)
 
     plan_report: PlanReportDict = {
         "nodes": len(result.plan.nodes),

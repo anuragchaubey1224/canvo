@@ -1,0 +1,16 @@
+{
+  "id": "sql-single-table-no-relations",
+  "category": "sql",
+  "description": "One table, no foreign keys — must not invent a relation, must not dangle.",
+  "input": {
+    "ddl": "CREATE TABLE settings (\n    id SERIAL PRIMARY KEY,\n    key VARCHAR(100) NOT NULL,\n    value TEXT\n);"
+  },
+  "expect": {
+    "nodes_min": 1,
+    "nodes_max": 1,
+    "edges_min": 0,
+    "edges_max": 0,
+    "must_contain": ["tbl-settings"],
+    "clean": true
+  }
+}

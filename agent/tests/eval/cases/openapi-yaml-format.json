@@ -1,0 +1,17 @@
+{
+  "id": "openapi-yaml-format",
+  "category": "openapi",
+  "description": "The spec arrives as YAML, not JSON — exercises parse_openapi's yaml.safe_load fallback.",
+  "input": {
+    "spec": "openapi: \"3.0.0\"\ninfo:\n  title: Notes API\npaths:\n  /notes:\n    get:\n      tags: [notes]\n    post:\n      tags: [notes]\n  /notes/{id}:\n    delete:\n      tags: [notes]\n"
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["api-root", "grp-notes"],
+    "must_connect": [["api-root", "grp-notes"]],
+    "clean": true
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "id": "create-isolated-node-flagged",
+  "category": "create",
+  "description": "A node with no edges at all, sitting outside every group, must be flagged — it is dropped content, not a reference panel.",
+  "input": {
+    "request": "draw a client talking to a server, plus an unrelated stray widget",
+    "plan": {
+      "title": "Client Server",
+      "nodes": [
+        {"id": "client", "label": "Client", "kind": "client"},
+        {"id": "server", "label": "Server", "kind": "service"},
+        {"id": "orphan", "label": "Orphan Widget", "kind": "note"}
+      ],
+      "edges": [
+        {"source": "client", "target": "server"}
+      ],
+      "groups": []
+    }
+  },
+  "expect": {
+    "nodes_min": 3,
+    "nodes_max": 3,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["n-client", "n-server", "n-orphan"],
+    "must_connect": [["n-client", "n-server"]],
+    "clean": true,
+    "must_raise_issue": ["isolated_node"],
+    "blocking_issues_max": 1,
+    "intent": "create"
+  }
+}

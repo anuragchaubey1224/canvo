@@ -1,0 +1,33 @@
+{
+  "id": "create-decision-needs-two-branches",
+  "category": "create",
+  "description": "A decision node with only one outgoing edge is structurally wrong — a branch point needs at least two outcomes. The validator must catch it.",
+  "input": {
+    "request": "draw a login flow that checks whether the token is valid",
+    "plan": {
+      "title": "Token Check",
+      "nodes": [
+        {"id": "start", "label": "Start", "kind": "start"},
+        {"id": "check", "label": "Token Valid?", "kind": "decision"},
+        {"id": "ok", "label": "Allow", "kind": "end"}
+      ],
+      "edges": [
+        {"source": "start", "target": "check"},
+        {"source": "check", "target": "ok"}
+      ],
+      "groups": []
+    }
+  },
+  "expect": {
+    "nodes_min": 3,
+    "nodes_max": 3,
+    "edges_min": 2,
+    "edges_max": 2,
+    "must_contain": ["n-start", "n-check", "n-ok"],
+    "must_connect": [["n-start", "n-check"], ["n-check", "n-ok"]],
+    "clean": true,
+    "must_raise_issue": ["single_branch"],
+    "blocking_issues_max": 1,
+    "intent": "create"
+  }
+}

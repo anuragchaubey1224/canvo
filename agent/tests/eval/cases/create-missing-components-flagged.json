@@ -1,0 +1,31 @@
+{
+  "id": "create-missing-components-flagged",
+  "category": "create",
+  "description": "The spec names four components; the plan only drew two. The validator must catch the drop (more than one missing is an error, not a judgement call) even though nothing here can repair it without an LLM.",
+  "input": {
+    "request": "draw an order pipeline with checkout, payment, a ledger and a receipt email",
+    "spec_markdown": "TITLE: Order Pipeline\nTYPE: workflow\nCOMPONENTS:\n- Checkout (client) - web\n- Payment Service (service) - POST /pay\n- Ledger (datastore) - -\n- Receipt Email (external) - -\nFLOW:\n1. Checkout -> Payment Service: charge\n2. Payment Service -> Ledger: record\n3. Payment Service -> Receipt Email: notify\nPHASES:\n1. Purchase: Checkout, Payment Service\n2. Settlement: Ledger, Receipt Email\nASSUMPTIONS:\n- Payments are card-only.\n",
+    "plan": {
+      "title": "Order Pipeline",
+      "nodes": [
+        {"id": "checkout", "label": "Checkout", "kind": "client"},
+        {"id": "payment", "label": "Payment Service", "kind": "service"}
+      ],
+      "edges": [
+        {"source": "checkout", "target": "payment", "label": "charge"}
+      ],
+      "groups": []
+    }
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["n-checkout", "n-payment"],
+    "clean": true,
+    "must_raise_issue": ["missing_components"],
+    "blocking_issues_max": 2,
+    "intent": "create"
+  }
+}

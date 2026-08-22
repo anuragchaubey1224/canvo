@@ -1,0 +1,17 @@
+{
+  "id": "openapi-single-group",
+  "category": "openapi",
+  "description": "One group, minimal API surface — the smallest non-empty case.",
+  "input": {
+    "spec": "{\"openapi\": \"3.0.0\", \"info\": {\"title\": \"Ping API\"}, \"paths\": {\"/health\": {\"get\": {\"tags\": [\"status\"]}}}}"
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["api-root", "grp-status"],
+    "must_connect": [["api-root", "grp-status"]],
+    "clean": true
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "sql-wide-schema-needs-refine",
+  "category": "sql",
+  "description": "4 tables x 20 columns overlaps at gap_scale=1.0 (see test_refine_loop.py) — the Critic must widen the layout and converge within the iteration cap.",
+  "input": {
+    "ddl": "CREATE TABLE t_0 (id INT PRIMARY KEY, col_0 VARCHAR(20), col_1 VARCHAR(20), col_2 VARCHAR(20), col_3 VARCHAR(20), col_4 VARCHAR(20), col_5 VARCHAR(20), col_6 VARCHAR(20), col_7 VARCHAR(20), col_8 VARCHAR(20), col_9 VARCHAR(20), col_10 VARCHAR(20), col_11 VARCHAR(20), col_12 VARCHAR(20), col_13 VARCHAR(20), col_14 VARCHAR(20), col_15 VARCHAR(20), col_16 VARCHAR(20), col_17 VARCHAR(20), col_18 VARCHAR(20), col_19 VARCHAR(20));\nCREATE TABLE t_1 (id INT PRIMARY KEY, col_0 VARCHAR(20), col_1 VARCHAR(20), col_2 VARCHAR(20), col_3 VARCHAR(20), col_4 VARCHAR(20), col_5 VARCHAR(20), col_6 VARCHAR(20), col_7 VARCHAR(20), col_8 VARCHAR(20), col_9 VARCHAR(20), col_10 VARCHAR(20), col_11 VARCHAR(20), col_12 VARCHAR(20), col_13 VARCHAR(20), col_14 VARCHAR(20), col_15 VARCHAR(20), col_16 VARCHAR(20), col_17 VARCHAR(20), col_18 VARCHAR(20), col_19 VARCHAR(20));\nCREATE TABLE t_2 (id INT PRIMARY KEY, col_0 VARCHAR(20), col_1 VARCHAR(20), col_2 VARCHAR(20), col_3 VARCHAR(20), col_4 VARCHAR(20), col_5 VARCHAR(20), col_6 VARCHAR(20), col_7 VARCHAR(20), col_8 VARCHAR(20), col_9 VARCHAR(20), col_10 VARCHAR(20), col_11 VARCHAR(20), col_12 VARCHAR(20), col_13 VARCHAR(20), col_14 VARCHAR(20), col_15 VARCHAR(20), col_16 VARCHAR(20), col_17 VARCHAR(20), col_18 VARCHAR(20), col_19 VARCHAR(20));\nCREATE TABLE t_3 (id INT PRIMARY KEY, col_0 VARCHAR(20), col_1 VARCHAR(20), col_2 VARCHAR(20), col_3 VARCHAR(20), col_4 VARCHAR(20), col_5 VARCHAR(20), col_6 VARCHAR(20), col_7 VARCHAR(20), col_8 VARCHAR(20), col_9 VARCHAR(20), col_10 VARCHAR(20), col_11 VARCHAR(20), col_12 VARCHAR(20), col_13 VARCHAR(20), col_14 VARCHAR(20), col_15 VARCHAR(20), col_16 VARCHAR(20), col_17 VARCHAR(20), col_18 VARCHAR(20), col_19 VARCHAR(20));"
+  },
+  "expect": {
+    "nodes_min": 4,
+    "nodes_max": 4,
+    "edges_min": 0,
+    "edges_max": 0,
+    "must_contain": ["tbl-t-0", "tbl-t-1", "tbl-t-2", "tbl-t-3"],
+    "clean": true,
+    "min_refines": 1,
+    "max_refines": 2
+  }
+}

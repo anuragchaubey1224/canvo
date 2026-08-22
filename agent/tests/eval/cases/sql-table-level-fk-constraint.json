@@ -1,0 +1,17 @@
+{
+  "id": "sql-table-level-fk-constraint",
+  "category": "sql",
+  "description": "A named CONSTRAINT ... FOREIGN KEY, not an inline REFERENCES — a different code path in parse_sql.",
+  "input": {
+    "ddl": "CREATE TABLE authors (\n    id SERIAL PRIMARY KEY,\n    name VARCHAR(100)\n);\nCREATE TABLE books (\n    id SERIAL PRIMARY KEY,\n    author_id INTEGER NOT NULL,\n    CONSTRAINT fk_author FOREIGN KEY (author_id) REFERENCES authors(id)\n);"
+  },
+  "expect": {
+    "nodes_min": 2,
+    "nodes_max": 2,
+    "edges_min": 1,
+    "edges_max": 1,
+    "must_contain": ["tbl-authors", "tbl-books"],
+    "must_connect": [["tbl-books", "tbl-authors"]],
+    "clean": true
+  }
+}
