@@ -103,9 +103,7 @@ class Graph:
             yield node, update
             node = self._next(node, state)
 
-    async def ainvoke(
-        self, state: dict[str, Any], on_step: StepFn | None = None
-    ) -> dict[str, Any]:
+    async def ainvoke(self, state: dict[str, Any], on_step: StepFn | None = None) -> dict[str, Any]:
         """Run the graph to completion and return the final merged state."""
         async for _node, _update in self.astream(state, on_step):
             pass

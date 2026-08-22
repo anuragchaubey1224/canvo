@@ -94,9 +94,7 @@ def meter_config(meter) -> dict:
     return {"callbacks": meter.callbacks} if meter is not None else {}
 
 
-async def structured_call(
-    cfg: LLMConfig, system: str, human: str, schema, stage: str, meter=None
-):
+async def structured_call(cfg: LLMConfig, system: str, human: str, schema, stage: str, meter=None):
     """One typed request, retried across structured-output methods. None if all fail."""
     import logging
 

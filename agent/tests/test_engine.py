@@ -124,8 +124,9 @@ def test_a_node_that_runs_twice_is_reported_twice():
     g.add_node("check", lambda s: {})
     g.set_entry("draw")
     g.add_edge("draw", "check")
-    g.add_conditional("check", lambda s: "again" if s["drawn"] < 2 else "stop",
-                      {"again": "draw", "stop": END})
+    g.add_conditional(
+        "check", lambda s: "again" if s["drawn"] < 2 else "stop", {"again": "draw", "stop": END}
+    )
 
     seen: list[str] = []
     asyncio.run(g.ainvoke({}, lambda n, ms: seen.append(n)))

@@ -317,8 +317,15 @@ def test_a_finished_run_closes_out_its_ledger_row(client, env, monkeypatch, tmp_
 
     async def one_plan(state):
         state["plan_report"] = {
-            "nodes": 4, "edges": 3, "groups": 1, "issues": [], "fixes": [],
-            "degraded": "", "intent": "create", "applied": [], "rejected": [],
+            "nodes": 4,
+            "edges": 3,
+            "groups": 1,
+            "issues": [],
+            "fixes": [],
+            "degraded": "",
+            "intent": "create",
+            "applied": [],
+            "rejected": [],
         }
         state["iterations"] = 1
         yield "planner", {"plan_report": state["plan_report"]}

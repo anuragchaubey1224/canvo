@@ -36,9 +36,7 @@ def upgrade() -> None:
         # would be inventing history. They simply don't count against anyone.
         batch_op.add_column(sa.Column("user_id", sa.String(length=36), nullable=True))
         # A run outlives the diagram it drew — deleting the diagram must not refund it.
-        batch_op.alter_column(
-            "session_id", existing_type=sa.VARCHAR(length=36), nullable=True
-        )
+        batch_op.alter_column("session_id", existing_type=sa.VARCHAR(length=36), nullable=True)
         batch_op.create_index(batch_op.f("ix_runs_user_id"), ["user_id"], unique=False)
         # The global daily cap counts rows since midnight on every generation request.
         batch_op.create_index(batch_op.f("ix_runs_created_at"), ["created_at"], unique=False)
@@ -50,7 +48,5 @@ def downgrade() -> None:
         batch_op.drop_constraint("fk_runs_user_id_users", type_="foreignkey")
         batch_op.drop_index(batch_op.f("ix_runs_created_at"))
         batch_op.drop_index(batch_op.f("ix_runs_user_id"))
-        batch_op.alter_column(
-            "session_id", existing_type=sa.VARCHAR(length=36), nullable=False
-        )
+        batch_op.alter_column("session_id", existing_type=sa.VARCHAR(length=36), nullable=False)
         batch_op.drop_column("user_id")

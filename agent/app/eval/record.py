@@ -122,9 +122,7 @@ def record_from_run(
 
     issues: Counter = Counter()
     issues += _issue_kinds(report.get("issues", []))
-    blocking = sum(
-        1 for i in report.get("issues", []) if _severity(i) == "error"
-    )
+    blocking = sum(1 for i in report.get("issues", []) if _severity(i) == "error")
     for critique in passes:
         issues += _issue_kinds(critique.get("issues", []))
 
