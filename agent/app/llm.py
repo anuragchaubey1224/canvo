@@ -84,7 +84,19 @@ def resolve_config(user_override: dict | None = None, *, role: str | None = None
 _METHODS = ("function_calling", "json_schema")
 
 
-async def structured_call(cfg: LLMConfig, system: str, human: str, schema, stage: str):
+def meter_config(meter) -> dict:
+    """The `config=` to pass to `ainvoke` so this call is counted.
+
+    `meter` is an `app.usage.UsageMeter` or None — typed loosely to keep this module free
+    of an import cycle, and because "no meter" is a normal state: a unit test calling a
+    stubbed model has nothing to account for.
+    """
+    return {"callbacks": meter.callbacks} if meter is not None else {}
+
+
+async def structured_call(
+    cfg: LLMConfig, system: str, human: str, schema, stage: str, meter=None
+):
     """One typed request, retried across structured-output methods. None if all fail."""
     import logging
 
@@ -92,7 +104,9 @@ async def structured_call(cfg: LLMConfig, system: str, human: str, schema, stage
     for method in _METHODS:
         try:
             model = build_chat_model(cfg).with_structured_output(schema, method=method)
-            result = await model.ainvoke([("system", system), ("human", human)])
+            result = await model.ainvoke(
+                [("system", system), ("human", human)], config=meter_config(meter)
+            )
         except Exception:
             logger.warning("%s failed via %s (model=%s)", stage, method, cfg.model, exc_info=True)
             continue

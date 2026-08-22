@@ -140,7 +140,7 @@ def _compact(plan: DiagramPlan) -> str:
 
 
 async def propose_edit(
-    plan: DiagramPlan, request: str, llm_override: dict | None = None
+    plan: DiagramPlan, request: str, llm_override: dict | None = None, meter=None
 ) -> DiagramEdit | None:
     """Ask for a diff against `plan`. None when there's no key or the call fails, in which
     case the caller must leave the diagram alone rather than guess."""
@@ -149,7 +149,7 @@ async def propose_edit(
         return None
 
     human = f"CURRENT DIAGRAM:\n{_compact(plan)}\n\nREQUEST:\n{request.strip()}"
-    return await structured_call(cfg, _SYSTEM, human, DiagramEdit, "diagram edit")
+    return await structured_call(cfg, _SYSTEM, human, DiagramEdit, "diagram edit", meter)
 
 
 __all__ = ["DiagramEdit", "EditOp", "propose_edit", "_OPS"]

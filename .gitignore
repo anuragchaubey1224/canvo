@@ -32,3 +32,6 @@ build/
 # --- Local data ---
 *.sqlite
 *.db
+
+# --- Personal working notes (not part of the repo's documentation) ---
+EVAL-PLAN.md

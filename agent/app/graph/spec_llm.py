@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.graph.planner_llm import DiagramPlan, PlanEdge, PlanGroup, PlanNode
-from app.llm import build_chat_model, resolve_config
+from app.llm import build_chat_model, meter_config, resolve_config
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,9 @@ def spec_to_plan(spec: DiagramSpec) -> DiagramPlan | None:
     return DiagramPlan(title=spec.title, nodes=nodes, edges=edges, groups=groups)
 
 
-async def write_spec(message: str, llm_override: dict | None = None) -> DiagramSpec | None:
+async def write_spec(
+    message: str, llm_override: dict | None = None, meter=None
+) -> DiagramSpec | None:
     """Freeform request → DiagramSpec. Returns None with no key, on error, or when the
     model answered in a shape we can't parse — the planner then reads the raw text as before."""
     cfg = resolve_config(llm_override, role="spec")
@@ -254,7 +256,9 @@ async def write_spec(message: str, llm_override: dict | None = None) -> DiagramS
 
     model = build_chat_model(cfg)
     try:
-        response = await model.ainvoke([("system", _SYSTEM), ("human", message.strip())])
+        response = await model.ainvoke(
+            [("system", _SYSTEM), ("human", message.strip())], config=meter_config(meter)
+        )
     except Exception:
         # Logged, not silent: a swallowed failure here shows up much later as a thin
         # diagram, and the cause is invisible unless it was recorded at the point of use.

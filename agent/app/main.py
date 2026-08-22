@@ -30,9 +30,11 @@ from app.auth.router import router as auth_router
 from app.db import repo
 from app.db.engine import get_db, init_db, session_factory
 from app.db.models import User
+from app.eval import record_from_run
 from app.graph.build import graph
 from app.graph.planner_llm import DiagramPlan
 from app.schema import AgentInput
+from app.usage import UsageMeter
 
 # Read agent/.env (API keys, provider config) before any request resolves LLM config.
 load_dotenv()
@@ -241,12 +243,14 @@ async def agent_stream(
             detail=verdict.reason,
             headers={"X-Canvo-Quota": f"{verdict.used}/{verdict.limit}"},
         )
-    await repo.record_run(
+    run = await repo.record_run(
         db,
         user_id=user.id,
         session_id=payload.session_id,
         input_kind=payload.input_kind or "text",
     )
+    run_id = run.id
+    meter = UsageMeter()
 
     # The diagram already on screen, read from the session rather than taken from the
     # client: the server decides what a follow-up is allowed to edit.
@@ -270,6 +274,9 @@ async def agent_stream(
             # BYOK / per-request model override — used for this request only, never persisted.
             "llm_override": (payload.llm.model_dump(exclude_none=True) if payload.llm else None),
             "layout_params": {"gap_scale": 1.0},
+            # Token and cost accounting for this run. Every model call reads it out of
+            # state and hands it to LangChain as a callback.
+            "meter": meter,
             "iterations": 0,
             "cost_usd": 0.0,
         }
@@ -277,6 +284,12 @@ async def agent_stream(
         started = time.perf_counter()
         drawn = 0
         passes: list[dict] = []
+        # A node can run more than once — the drawer does, on a refine — so the times add
+        # up rather than overwrite.
+        stage_ms: dict[str, float] = {}
+
+        def timed(node: str, elapsed: float) -> None:
+            stage_ms[node] = round(stage_ms.get(node, 0.0) + elapsed, 1)
 
         async def draw(actions: list) -> AsyncIterator[str]:
             """Stream one diagram. The stagger is a total budget, not a per-shape delay:
@@ -287,7 +300,7 @@ async def agent_stream(
                 yield f"data: {action.model_dump_json()}\n\n"
                 await asyncio.sleep(delay)
 
-        async for node, out in graph.astream(state):
+        async for node, out in graph.astream(state, timed):
             if not out:
                 continue
             # Reveal the diagram the moment the Drawer has one, rather than holding it
@@ -361,6 +374,31 @@ async def agent_stream(
                 logger.warning(
                     "could not persist the plan for %s", payload.session_id, exc_info=True
                 )
+
+        # Close the ledger row. This is the only place the run's own measurements are
+        # kept — see EVAL-PLAN.md §3. Failure must not break the response: the diagram is
+        # already drawn, and losing a metrics row is not worth losing a diagram over.
+        try:
+            record = record_from_run(
+                state,
+                outcome="completed",
+                passes=passes,
+                stage_ms=stage_ms,
+                total_ms=(time.perf_counter() - started) * 1000,
+                meter=meter,
+                shapes=drawn,
+            )
+            async with session_factory()() as db:
+                await repo.complete_run(
+                    db,
+                    run_id,
+                    outcome=record.outcome,
+                    shape_count=drawn,
+                    iterations=len(passes),
+                    metrics=json.dumps(record.as_dict()),
+                )
+        except Exception:
+            logger.warning("could not record metrics for run %s", run_id, exc_info=True)
 
         refined = len(passes) > 1
         yield (

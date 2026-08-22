@@ -168,6 +168,35 @@ async def record_run(
     return run
 
 
+async def complete_run(
+    db: AsyncSession,
+    run_id: int,
+    *,
+    outcome: str,
+    shape_count: int,
+    iterations: int,
+    metrics: str | None,
+) -> None:
+    """Close out the ledger row once the run is over.
+
+    The row is created before the graph starts, because the quota has to be spent before
+    anything is generated. Everything worth measuring is only known afterwards, so it
+    lands here. A row that never gets this update is a run that died mid-flight — which
+    is itself a signal worth being able to query for.
+    """
+    await db.execute(
+        update(Run)
+        .where(Run.id == run_id)
+        .values(
+            outcome=outcome,
+            shape_count=shape_count,
+            iterations=iterations,
+            metrics=metrics,
+        )
+    )
+    await db.commit()
+
+
 async def count_runs_for_user(db: AsyncSession, user_id: str) -> int:
     rows = await db.execute(select(func.count()).select_from(Run).where(Run.user_id == user_id))
     return int(rows.scalar_one())

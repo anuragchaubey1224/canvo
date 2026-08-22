@@ -84,7 +84,7 @@ async def editor(state: AgentState) -> AgentState:
     if not request:
         return {}
 
-    edit = await propose_edit(base, request, state.get("llm_override"))
+    edit = await propose_edit(base, request, state.get("llm_override"), state.get("meter"))
     if edit is None:
         logger.warning("edit stage failed; falling through to a fresh generation")
         return {}
@@ -152,7 +152,7 @@ async def specifier(state: AgentState) -> AgentState:
     if len(text) < _MIN_SPEC_CHARS:
         return {}
 
-    spec = await write_spec(text, state.get("llm_override"))
+    spec = await write_spec(text, state.get("llm_override"), state.get("meter"))
     return {"spec": spec} if spec else {}
 
 
@@ -185,7 +185,7 @@ async def planner(state: AgentState) -> AgentState:
     text = (state.get("payload") or state.get("user_message") or "").strip()
     override = state.get("llm_override")
     if text or spec:
-        llm_plan = await plan_from_text(text, override, spec=spec)
+        llm_plan = await plan_from_text(text, override, spec=spec, meter=state.get("meter"))
         degraded = ""
         if llm_plan is None and spec is not None:
             # The planner call failed, but the spec already names every component, step and
@@ -205,7 +205,11 @@ async def planner(state: AgentState) -> AgentState:
             # can never make the diagram worse than the first attempt.
             if report.blocking:
                 candidate = await refine_plan(
-                    llm_plan, repair_brief(report.blocking), override, spec=spec
+                    llm_plan,
+                    repair_brief(report.blocking),
+                    override,
+                    spec=spec,
+                    meter=state.get("meter"),
                 )
                 if candidate:
                     candidate_fixes = sanitize(candidate)
@@ -314,7 +318,7 @@ async def critic(state: AgentState) -> AgentState:
     vision_says_crowded = False
     if iters == 1 and state.get("vision_enabled", True):
         context = state.get("user_message") or state.get("payload") or ""
-        vc = await critique_image(actions, context=context)
+        vc = await critique_image(actions, context=context, meter=state.get("meter"))
         if vc is not None:
             source = "geometry+vision"
             for vi in vc.issues:

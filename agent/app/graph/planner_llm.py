@@ -21,7 +21,7 @@ import logging
 
 from pydantic import BaseModel, Field
 
-from app.llm import LLMConfig, build_chat_model, resolve_config
+from app.llm import LLMConfig, build_chat_model, meter_config, resolve_config
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +147,16 @@ the fixes — keeping everything that was already right. Fix only what is listed
 within the spec: add nothing it does not contain."""
 
 
-async def _ask(cfg: LLMConfig, system: str, human: str, stage: str) -> DiagramPlan | None:
+async def _ask(
+    cfg: LLMConfig, system: str, human: str, stage: str, meter=None
+) -> DiagramPlan | None:
     """One typed request, retried across structured-output methods before giving up."""
     for method in _METHODS:
         try:
             model = build_chat_model(cfg).with_structured_output(DiagramPlan, method=method)
-            plan = await model.ainvoke([("system", system), ("human", human)])
+            plan = await model.ainvoke(
+                [("system", system), ("human", human)], config=meter_config(meter)
+            )
         except Exception:
             logger.warning("%s failed via %s (model=%s)", stage, method, cfg.model, exc_info=True)
             continue
@@ -163,7 +167,7 @@ async def _ask(cfg: LLMConfig, system: str, human: str, stage: str) -> DiagramPl
 
 
 async def plan_from_text(
-    message: str, llm_override: dict | None = None, spec: object | None = None
+    message: str, llm_override: dict | None = None, spec: object | None = None, meter=None
 ) -> DiagramPlan | None:
     """Spec (preferred) or raw text → DiagramPlan. `spec` is a `DiagramSpec`; typed as
     `object` to keep this module free of a circular import with spec_llm."""
@@ -173,7 +177,7 @@ async def plan_from_text(
         return None
 
     system = _SYSTEM_SPEC if raw_spec else _SYSTEM_DIRECT
-    return await _ask(cfg, system, raw_spec or message, "planner")
+    return await _ask(cfg, system, raw_spec or message, "planner", meter)
 
 
 async def refine_plan(
@@ -181,6 +185,7 @@ async def refine_plan(
     brief: str,
     llm_override: dict | None = None,
     spec: object | None = None,
+    meter=None,
 ) -> DiagramPlan | None:
     """One targeted repair pass driven by the validator's findings. None on any failure —
     the caller keeps the original plan, so a repair can never make the run worse."""
@@ -194,4 +199,4 @@ async def refine_plan(
         + f"CURRENT GRAPH:\n{plan.model_dump_json(exclude_none=True)}\n\n"
         + f"PROBLEMS TO FIX:\n{brief}"
     )
-    return await _ask(cfg, _SYSTEM_REPAIR, human, "plan repair")
+    return await _ask(cfg, _SYSTEM_REPAIR, human, "plan repair", meter)

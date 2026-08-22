@@ -180,11 +180,22 @@ def client(monkeypatch, tmp_path):
     """
     from fastapi.testclient import TestClient
 
+    import app.db.engine as engine_mod
     from app.auth import throttle
     from app.db.engine import get_db
     from app.main import app
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'quota.db'}")
+    # One database for both halves of a request. The stream endpoint reads through the
+    # `get_db` dependency, but the write that closes out the run row happens inside the
+    # streaming generator — after the request scope has gone — so it opens its own session
+    # from `session_factory()`. In production those are the same database; here they are
+    # only the same if DATABASE_URL points at the file the override uses too.
+    db_file = tmp_path / "quota.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
+    monkeypatch.setattr(engine_mod, "_engine", None)
+    monkeypatch.setattr(engine_mod, "_sessionmaker", None)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_file}")
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
     async def override_db():
@@ -287,3 +298,58 @@ def test_login_reports_the_real_count_not_zero(client, env, monkeypatch):
     )
     assert again.status_code == 200
     assert again.json()["runs_used"] == 2, "logging in must not appear to refund the allowance"
+
+
+# --- Phase 01: the ledger row is also the telemetry row -----------------------------------
+
+
+def test_a_finished_run_closes_out_its_ledger_row(client, env, monkeypatch, tmp_path):
+    """The row is created before the graph starts, for quota. Everything measured about
+    the run is only known afterwards, so it has to land back on the same row — otherwise
+    the ledger says a run happened and nothing says how it went."""
+    import json
+
+    import app.main
+    from app.db.models import Run
+
+    env(user=3, daily=0)
+    db_file = tmp_path / "quota.db"
+
+    async def one_plan(state):
+        state["plan_report"] = {
+            "nodes": 4, "edges": 3, "groups": 1, "issues": [], "fixes": [],
+            "degraded": "", "intent": "create", "applied": [], "rejected": [],
+        }
+        state["iterations"] = 1
+        yield "planner", {"plan_report": state["plan_report"]}
+
+    monkeypatch.setattr(app.main.graph, "astream", lambda s, on_step=None: one_plan(s))
+
+    res = client.post(
+        "/agent/stream", json={"message": "", "payload": "draw a system", "session_id": "s1"}
+    )
+    assert res.status_code == 200
+    res.read()  # drain the stream so the generator reaches its end
+
+    import asyncio
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker as _sm
+    from sqlalchemy.ext.asyncio import create_async_engine as _ce
+
+    async def read_row():
+        eng = _ce(f"sqlite+aiosqlite:///{db_file}")
+        async with _sm(eng, expire_on_commit=False)() as db:
+            row = (await db.execute(select(Run))).scalars().first()
+        await eng.dispose()
+        return row
+
+    row = asyncio.run(read_row())
+    assert row is not None
+    assert row.outcome == "completed"
+    assert row.metrics, "the measured record must be persisted, not just the counts"
+
+    record = json.loads(row.metrics)
+    assert record["nodes"] == 4
+    assert record["intent"] == "create"
+    assert "stage_ms" in record

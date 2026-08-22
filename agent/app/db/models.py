@@ -139,3 +139,8 @@ class Run(Base):
     shape_count: Mapped[int] = mapped_column(Integer, default=0)
     iterations: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    # How the run ended, and everything measured about it — one app.eval.RunRecord as
+    # JSON. Null until the run finishes, which is also how an abandoned run is spotted:
+    # the quota row exists because tokens were committed, but nothing ever came back.
+    outcome: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    metrics: Mapped[str | None] = mapped_column(Text, nullable=True)

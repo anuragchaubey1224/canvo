@@ -20,6 +20,7 @@ final state. A hard step cap guards against a mis-wired infinite loop.
 from __future__ import annotations
 
 import inspect
+import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -28,6 +29,7 @@ START = "__start__"
 
 NodeFn = Callable[[Any], Any]  # (state) -> partial update dict | awaitable of that
 RouterFn = Callable[[Any], str]  # (state) -> branch key
+StepFn = Callable[[str, float], None]  # (node name, elapsed ms) -> None
 
 _MAX_STEPS = 64  # safety backstop; the real loop bound is MAX_ITERATIONS in the Critic
 
@@ -70,11 +72,19 @@ class Graph:
             result = await result
         return result or {}
 
-    async def astream(self, state: dict[str, Any]) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    async def astream(
+        self, state: dict[str, Any], on_step: StepFn | None = None
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         """Walk the graph from the entry node, merging each update into `state`.
 
         Yields `(node_name, update)` after every node runs (the delta, not the full
         state) — mutates the provided `state` in place, so pass a fresh dict per run.
+
+        `on_step` is called with each node's name and how long it took, in milliseconds.
+        It is a callback rather than a key written into state so that instrumentation
+        cannot collide with a node's own update, and so the engine stays a graph runner
+        that knows nothing about what is being measured. A node that runs twice — the
+        drawer, on a refine — reports twice; summing is the caller's business.
         """
         if self._entry is None:
             raise RuntimeError("no entry node set — call set_entry() first")
@@ -85,13 +95,18 @@ class Graph:
             if steps >= _MAX_STEPS:
                 raise RuntimeError(f"graph exceeded {_MAX_STEPS} steps — possible infinite loop")
             steps += 1
+            started = time.perf_counter()
             update = await self._run(node, state)
+            if on_step is not None:
+                on_step(node, (time.perf_counter() - started) * 1000)
             state.update(update)
             yield node, update
             node = self._next(node, state)
 
-    async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+    async def ainvoke(
+        self, state: dict[str, Any], on_step: StepFn | None = None
+    ) -> dict[str, Any]:
         """Run the graph to completion and return the final merged state."""
-        async for _node, _update in self.astream(state):
+        async for _node, _update in self.astream(state, on_step):
             pass
         return state

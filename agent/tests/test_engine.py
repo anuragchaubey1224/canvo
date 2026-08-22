@@ -80,3 +80,65 @@ def test_unmapped_router_key_raises():
 
     with pytest.raises(KeyError):
         asyncio.run(g.ainvoke({}))
+
+
+# --- Phase 01: per-stage timing -----------------------------------------------------------
+
+
+def test_astream_reports_how_long_each_node_took():
+    """`on_step` is a callback rather than a key written into state, so instrumentation
+    can never collide with a node's own update."""
+    import asyncio
+
+    g = Graph()
+    g.add_node("a", lambda s: {"a": 1})
+    g.add_node("b", lambda s: {"b": 2})
+    g.set_entry("a")
+    g.add_edge("a", "b")
+
+    seen: list[tuple[str, float]] = []
+
+    async def run():
+        async for _node, _update in g.astream({}, lambda n, ms: seen.append((n, ms))):
+            pass
+
+    asyncio.run(run())
+
+    assert [name for name, _ in seen] == ["a", "b"]
+    assert all(ms >= 0 for _, ms in seen)
+
+
+def test_a_node_that_runs_twice_is_reported_twice():
+    """The drawer runs again on a refine. Summing is the caller's business, not the
+    engine's — it reports each visit."""
+    import asyncio
+
+    g = Graph()
+    calls = {"n": 0}
+
+    def draw(state):
+        calls["n"] += 1
+        return {"drawn": calls["n"]}
+
+    g.add_node("draw", draw)
+    g.add_node("check", lambda s: {})
+    g.set_entry("draw")
+    g.add_edge("draw", "check")
+    g.add_conditional("check", lambda s: "again" if s["drawn"] < 2 else "stop",
+                      {"again": "draw", "stop": END})
+
+    seen: list[str] = []
+    asyncio.run(g.ainvoke({}, lambda n, ms: seen.append(n)))
+
+    assert seen.count("draw") == 2
+
+
+def test_timing_is_optional():
+    """Every existing caller passes nothing, and must keep working."""
+    import asyncio
+
+    g = Graph()
+    g.add_node("only", lambda s: {"ok": True})
+    g.set_entry("only")
+
+    assert asyncio.run(g.ainvoke({}))["ok"] is True

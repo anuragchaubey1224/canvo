@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from app.graph.render import render_actions
-from app.llm import build_chat_model, resolve_config
+from app.llm import build_chat_model, meter_config, resolve_config
 from app.schema import AgentAction
 
 
@@ -38,7 +38,9 @@ _SYSTEM = (
 )
 
 
-async def critique_image(actions: list[AgentAction], *, context: str = "") -> VisionCritique | None:
+async def critique_image(
+    actions: list[AgentAction], *, context: str = "", meter=None
+) -> VisionCritique | None:
     """Render the diagram and ask a vision model to critique its layout. None on no-key/failure."""
     cfg = resolve_config(role="vision")
     if not cfg.api_key:
@@ -66,7 +68,9 @@ async def critique_image(actions: list[AgentAction], *, context: str = "") -> Vi
         model = build_chat_model(cfg).with_structured_output(
             VisionCritique, method="function_calling"
         )
-        result = await model.ainvoke([SystemMessage(content=_SYSTEM), human])
+        result = await model.ainvoke(
+            [SystemMessage(content=_SYSTEM), human], config=meter_config(meter)
+        )
     except Exception:
         return None
 

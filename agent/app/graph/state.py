@@ -77,3 +77,6 @@ class AgentState(TypedDict, total=False):
     # loop control / accounting
     iterations: int
     cost_usd: float
+    # Token/cost accounting for this run — an app.usage.UsageMeter, or absent in tests
+    # that stub the model. Typed loosely to keep the state module import-free.
+    meter: object
