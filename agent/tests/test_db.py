@@ -32,7 +32,9 @@ async def _scenario():
         loaded = await repo.get_session(db, session.id)
         assert loaded is not None and loaded.snapshot == '{"shapes": 3}'
 
-        run = await repo.record_run(db, session.id, "sql", shape_count=3, iterations=1)
+        run = await repo.record_run(
+            db, user_id=None, session_id=session.id, input_kind="sql", shape_count=3, iterations=1
+        )
         assert run.id is not None and run.input_kind == "sql"
 
         assert await repo.save_snapshot(db, "does-not-exist", "{}") is None

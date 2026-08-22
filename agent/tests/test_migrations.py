@@ -98,15 +98,23 @@ def test_a_database_from_before_alembic_is_stamped_not_rebuilt(tmp_path: Path):
 
 def test_init_db_can_be_switched_off_for_a_release_step(tmp_path, monkeypatch):
     """Several instances booting at once would race for the migration lock, so a
-    multi-instance deploy runs migrations once as a release step instead."""
-    import importlib
+    multi-instance deploy runs migrations once as a release step instead.
 
+    No reload. `init_db` reads RUN_MIGRATIONS and DATABASE_URL at call time, so the env is
+    all this needs — and reloading the module was actively harmful: it rebinds `get_db` to
+    a new function object while every route still holds the original in its `Depends(...)`
+    default. Any later test that imported `get_db` fresh then registered its override
+    against a key nothing matches, silently fell through to the real engine, and wrote to
+    the developer's database. That is how two test accounts ended up in it.
+    """
     import app.db.engine as engine_mod
 
     target = tmp_path / "untouched.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{target}")
     monkeypatch.setenv("RUN_MIGRATIONS", "false")
-    importlib.reload(engine_mod)
-    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(engine_mod.init_db())
+    # The engine is memoised per process, so a previous test's engine would be reused and
+    # this one would never look at DATABASE_URL at all.
+    monkeypatch.setattr(engine_mod, "_engine", None)
+    asyncio.run(engine_mod.init_db())
     assert not target.exists()
-    importlib.reload(engine_mod)  # leave the module as the rest of the suite expects
+    monkeypatch.setattr(engine_mod, "_engine", None)
