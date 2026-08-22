@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import quota
 from app.auth import link_tokens, throttle
 from app.auth.deps import clear_session_cookie, client_ip, current_user, set_session_cookie
 from app.auth.passwords import (
@@ -55,12 +56,24 @@ class Credentials(BaseModel):
     password: str = Field(max_length=1024)  # policy caps it lower; this stops absurd bodies
 
 
-def _account(user: User) -> dict:
+async def _account(db: AsyncSession, user: User) -> dict:
+    """The signed-in user, as the client sees them.
+
+    The run count is always looked up. It was optional once, defaulting to zero on the
+    grounds that signup answers before any run exists — which is true of signup and
+    plainly false of login. The result was a client that believed a returning account had
+    a full allowance, showed "3 left", and then watched the server refuse the next
+    request. One indexed COUNT is cheaper than being wrong.
+    """
     return {
         "id": user.id,
         "email": user.email,
         "email_verified": bool(user.email_verified),
         "created_at": user.created_at.isoformat(),
+        # The demo allowance, so the UI can count down instead of discovering the limit
+        # by being refused. `0` means this deployment has no per-account limit.
+        "runs_used": await repo.count_runs_for_user(db, user.id),
+        "runs_limit": quota.user_limit(),
     }
 
 
@@ -124,7 +137,7 @@ async def signup(
     throttle.record_success(email, ip)
     await _send_link(db, user, link_tokens.VERIFY)
     await _issue_session(db, response, user)
-    return _account(user)
+    return await _account(db, user)
 
 
 @router.post("/login")
@@ -158,7 +171,7 @@ async def login(
 
     throttle.record_success(email, ip)
     await _issue_session(db, response, user)
-    return _account(user)
+    return await _account(db, user)
 
 
 @router.post("/logout")
@@ -183,8 +196,8 @@ async def logout_all(
 
 
 @router.get("/me")
-async def me(user: User = Depends(current_user)):
-    return _account(user)
+async def me(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    return await _account(db, user)
 
 
 # --- recovery and verification -----------------------------------------------------------
@@ -254,7 +267,7 @@ async def reset(
 
     throttle.record_success(user.email, "reset")
     await _issue_session(db, response, user)
-    return _account(user)
+    return await _account(db, user)
 
 
 @router.post("/verify")

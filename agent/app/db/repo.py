@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AuthSession, AuthToken, Message, Run, Session, User
@@ -103,7 +103,9 @@ async def delete_session(db: AsyncSession, session_id: str, user_id: str | None 
     if obj is None:
         return False
     await db.execute(delete(Message).where(Message.session_id == session_id))
-    await db.execute(delete(Run).where(Run.session_id == session_id))
+    # Runs are deliberately kept. They are the quota ledger, and deleting the diagram a
+    # run produced would otherwise be a one-click way to refund it.
+    await db.execute(update(Run).where(Run.session_id == session_id).values(session_id=None))
     await db.delete(obj)
     await db.commit()
     return True
@@ -144,9 +146,17 @@ async def list_messages(
 
 
 async def record_run(
-    db: AsyncSession, session_id: str, input_kind: str, shape_count: int, iterations: int
+    db: AsyncSession,
+    user_id: str | None,
+    session_id: str | None,
+    input_kind: str,
+    shape_count: int = 0,
+    iterations: int = 0,
 ) -> Run:
+    """Write the ledger row. Called *before* the graph runs — the tokens are committed the
+    moment the first model call goes out, so a run that fails still counts."""
     run = Run(
+        user_id=user_id,
         session_id=session_id,
         input_kind=input_kind,
         shape_count=shape_count,
@@ -156,6 +166,27 @@ async def record_run(
     await db.commit()
     await db.refresh(run)
     return run
+
+
+async def count_runs_for_user(db: AsyncSession, user_id: str) -> int:
+    rows = await db.execute(select(func.count()).select_from(Run).where(Run.user_id == user_id))
+    return int(rows.scalar_one())
+
+
+async def count_runs_since(db: AsyncSession, since: datetime) -> int:
+    """Every run across the whole deployment since `since` — the global daily cap."""
+    rows = await db.execute(select(func.count()).select_from(Run).where(Run.created_at >= since))
+    return int(rows.scalar_one())
+
+
+async def reset_runs_for_user(db: AsyncSession, user_id: str) -> int:
+    """Clear one account's ledger. For the demo owner, via app/scripts/reset_quota.py."""
+    # Counted first: `execute(delete(...))` returns a CursorResult with a rowcount, but the
+    # async signature is the base Result, which has no such attribute to read.
+    cleared = await count_runs_for_user(db, user_id)
+    await db.execute(delete(Run).where(Run.user_id == user_id))
+    await db.commit()
+    return cleared
 
 
 # --------------------------------------------------------------------------------------

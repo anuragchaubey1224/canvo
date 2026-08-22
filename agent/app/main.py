@@ -15,6 +15,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
@@ -23,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import quota
 from app.auth.deps import current_user
 from app.auth.router import router as auth_router
 from app.db import repo
@@ -89,6 +91,13 @@ class MessageIn(BaseModel):
     role: str  # "user" | "assistant"
     text: str = ""
     activity: dict | None = None  # the run trace: spec, plan, critique passes
+
+
+def _start_of_utc_day():
+    """The daily cap resets at midnight UTC. A fixed boundary, so the message "try
+    again tomorrow" means one thing rather than depending on where the server is."""
+    now = datetime.now(UTC)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 # Every route below takes `current_user`. Identity is a parameter, not ambient state, so
@@ -193,7 +202,14 @@ async def put_snapshot(
 
 
 @app.post("/agent/stream")
-async def agent_stream(payload: AgentInput, user: User = Depends(current_user)):
+async def agent_stream(
+    payload: AgentInput,
+    user: User = Depends(current_user),
+    # Request-scoped, for the two reads that happen before streaming begins. The write
+    # inside the generator cannot use this one — by then the request scope, and this
+    # session with it, is gone — so it opens its own.
+    db: AsyncSession = Depends(get_db),
+):
     """Run the graph and stream the run as Server-Sent Events.
 
     Consumes `graph.astream(...)` (our engine yields `(node, update)` per step), so the
@@ -209,11 +225,33 @@ async def agent_stream(payload: AgentInput, user: User = Depends(current_user)):
     reads what the model filled in before judging the picture it drew.
     """
 
+    # Quota first: this is the last point at which refusing is free. Everything below
+    # here reaches a model, and a 429 after the fact would be a bill with an apology.
+    #
+    # The run is recorded here rather than on success. The tokens are committed the
+    # moment the graph starts, so a generation that fails still cost money and still
+    # counts — otherwise "make it fail" is an unlimited plan.
+    verdict = quota.check(
+        used_by_user=await repo.count_runs_for_user(db, user.id),
+        used_today=await repo.count_runs_since(db, _start_of_utc_day()),
+    )
+    if not verdict.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=verdict.reason,
+            headers={"X-Canvo-Quota": f"{verdict.used}/{verdict.limit}"},
+        )
+    await repo.record_run(
+        db,
+        user_id=user.id,
+        session_id=payload.session_id,
+        input_kind=payload.input_kind or "text",
+    )
+
     # The diagram already on screen, read from the session rather than taken from the
     # client: the server decides what a follow-up is allowed to edit.
     base_plan: DiagramPlan | None = None
-    async with session_factory()() as db:
-        stored = await repo.get_plan(db, payload.session_id, user.id)
+    stored = await repo.get_plan(db, payload.session_id, user.id)
     if stored:
         try:
             base_plan = DiagramPlan.model_validate_json(stored)

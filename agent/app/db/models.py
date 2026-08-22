@@ -113,13 +113,29 @@ class Message(Base):
 
 
 class Run(Base):
-    """One agent run — for eval/analytics (input kind, shapes, iterations)."""
+    """One agent run: a row per call that was allowed to spend model tokens.
+
+    This is the quota ledger as well as the analytics table, which is why `user_id` is
+    here rather than reached through `sessions`. Two reasons it has to be its own column:
+    deleting a diagram must not refund the runs it cost, and a run is recorded *before*
+    the graph starts, when the session it belongs to may be seconds old.
+
+    Rows outlive the session they came from — see repo.delete_session.
+    """
 
     __tablename__ = "runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id"))
+    # Nullable: rows written before quotas existed have no owner, and back-filling them
+    # would be inventing history. They simply don't count against anyone.
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True, index=True
+    )
+    # Nullable for the same reason a session can be deleted out from under a run.
+    session_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("sessions.id"), nullable=True
+    )
     input_kind: Mapped[str] = mapped_column(String(20), default="text")
     shape_count: Mapped[int] = mapped_column(Integer, default=0)
     iterations: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
