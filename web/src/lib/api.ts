@@ -14,13 +14,30 @@ export const API =
  * Every call to the service goes through here. A missed `credentials: 'include'` doesn't
  * throw — it just arrives unauthenticated and the user appears randomly signed out, which
  * is a miserable bug to find. Centralising it means it can't be forgotten. */
-export function api(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${API}${path}`, { ...init, credentials: 'include' })
+export async function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(`${API}${path}`, { ...init, credentials: 'include' })
+  // A 401 on a request that was supposed to be authenticated means the session ended —
+  // it expired, or it was signed out in another tab. The app shell listens for this and
+  // drops to signed-out, rather than leaving a page whose data will never arrive.
+  //
+  // `/auth/*` is excluded on purpose: `/auth/me` answers 401 for "nobody is signed in",
+  // which is a normal answer to a normal question, and a failed sign-in is 401 by design.
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    window.dispatchEvent(new Event('canvo:unauthorized'))
+  }
+  return res
 }
 
-/** As `api`, but for a JSON body. */
-export function apiJson(path: string, method: string, body: unknown): Promise<Response> {
+/** As `api`, but for a JSON body. `init` is for the rest — chiefly an AbortSignal, so a
+ *  long-running stream can be cancelled by the user. */
+export function apiJson(
+  path: string,
+  method: string,
+  body: unknown,
+  init: RequestInit = {},
+): Promise<Response> {
   return api(path, {
+    ...init,
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

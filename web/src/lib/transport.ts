@@ -16,9 +16,35 @@ export interface StreamHandlers {
   onDone?: (info: unknown) => void
 }
 
-export async function streamAgent(input: AgentInput, handlers: StreamHandlers): Promise<void> {
+/** Thrown when the caller aborts, so the UI can tell "you stopped it" from "it broke". */
+export class Aborted extends Error {}
+
+/** The server declined to spend anything: this account, or the whole deployment, is out
+ *  of generations. The message is written for a person and is shown as-is. */
+export class QuotaExceeded extends Error {}
+
+export async function streamAgent(
+  input: AgentInput,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
   const { onAction, onSpec, onPlan, onCritique, onRedraw, onAnswer, onDone } = handlers
-  const res = await apiJson('/agent/stream', 'POST', input)
+  let res: Response
+  try {
+    res = await apiJson('/agent/stream', 'POST', input, { signal })
+  } catch (e) {
+    if (signal?.aborted) throw new Aborted('stopped')
+    throw e
+  }
+  if (res.status === 429) {
+    const detail = await res
+      .json()
+      .then((body: { detail?: unknown }) =>
+        typeof body.detail === 'string' ? body.detail : '',
+      )
+      .catch(() => '')
+    throw new QuotaExceeded(detail || "You're out of diagram generations.")
+  }
   if (!res.ok || !res.body) throw new Error(`agent responded ${res.status}`)
 
   const reader = res.body.getReader()
@@ -26,7 +52,16 @@ export async function streamAgent(input: AgentInput, handlers: StreamHandlers): 
   let buffer = ''
 
   for (;;) {
-    const { value, done } = await reader.read()
+    let value: Uint8Array | undefined
+    let done: boolean
+    try {
+      ;({ value, done } = await reader.read())
+    } catch (e) {
+      // An abort surfaces here once the body is already streaming. Whatever was drawn
+      // before it stays on the canvas — cancelling is not undoing.
+      if (signal?.aborted) throw new Aborted('stopped')
+      throw e
+    }
     if (done) break
     buffer += decoder.decode(value, { stream: true })
 

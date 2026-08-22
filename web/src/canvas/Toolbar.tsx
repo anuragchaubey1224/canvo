@@ -27,16 +27,37 @@ const GROUPS: string[][] = [
   ['rectangle', 'ellipse', 'frame', 'asset'],
 ]
 
+/** tldraw stores shortcuts in an old symbol notation — `!` shift, `$` cmd, `?` alt — and
+ *  a bare letter for the rest. Rendered here so a tooltip shows the key you would actually
+ *  press, and only when the tool really has one. */
+function shortcut(kbd: string | undefined): string {
+  if (!kbd) return ''
+  const first = kbd.split(',')[0].trim()
+  if (!first) return ''
+  return first
+    .replace(/\$/g, '⌘')
+    .replace(/!/g, '⇧')
+    .replace(/\?/g, '⌥')
+    .replace(/\bcmd\b/gi, '⌘')
+    .replace(/\bshift\b/gi, '⇧')
+    .replace(/\balt\b/gi, '⌥')
+    .replace(/\bctrl\b/gi, '⌃')
+    .replace(/\+/g, '')
+    .toUpperCase()
+}
+
 function ToolButton({ tool }: { tool: TLUiToolItem }) {
   const selected = useIsToolSelected(tool)
   const msg = useTranslation()
   const label = msg(tool.label)
+  const keys = shortcut(tool.kbd)
   return (
     <TldrawUiButton
       type="tool"
       isActive={selected}
-      title={label}
+      title={keys ? `${label} — ${keys}` : label}
       aria-label={label}
+      aria-keyshortcuts={tool.kbd || undefined}
       aria-pressed={selected}
       onClick={() => tool.onSelect('toolbar')}
     >

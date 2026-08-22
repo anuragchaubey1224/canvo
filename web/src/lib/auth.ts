@@ -13,9 +13,26 @@ export interface Account {
    *  the inbox trustworthy for recovery. */
   email_verified: boolean
   created_at: string
+  /** Generations spent on this account, and the allowance. `runs_limit: 0` means this
+   *  deployment has no per-account limit. Both come from the server — the client shows
+   *  the number, it does not decide it. */
+  runs_used: number
+  runs_limit: number
+}
+
+/** How many generations are left, or `null` when this deployment is unlimited. */
+export function runsLeft(account: Account): number | null {
+  if (!account.runs_limit) return null
+  return Math.max(0, account.runs_limit - account.runs_used)
 }
 
 export class AuthError extends Error {}
+
+/** What to show when the request never reached the server. The server's own messages are
+ *  already written for people — and deliberately worded not to reveal whether an address
+ *  has an account — so they are passed through untouched. This covers everything else. */
+export const OFFLINE_MESSAGE = "We couldn't reach Canvo. Check your connection and try again."
+
 
 async function post(path: string, body?: unknown): Promise<Response> {
   return body ? apiJson(path, 'POST', body) : api(path, { method: 'POST' })

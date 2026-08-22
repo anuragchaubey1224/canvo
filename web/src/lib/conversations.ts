@@ -22,6 +22,11 @@ export interface RunActivity {
   shapes?: number
   elapsed_s?: number
   error?: string | null
+  /** The user pressed stop. Whatever was drawn stays; the run just ended early. */
+  stopped?: boolean
+  /** The server refused to spend anything — the allowance is gone. Its own field rather
+   *  than `error`, because nothing broke and there is nothing to retry. */
+  quota?: string
 }
 
 export interface ChatMessage {
@@ -59,12 +64,17 @@ export async function listConversations(): Promise<Conversation[]> {
   return json<Conversation[]>(await api('/sessions'), 'history')
 }
 
+/** Both of these throw on a non-2xx, like the reads above. They used to swallow it, which
+ *  meant a 404 or a dropped connection was indistinguishable from success — so a caller
+ *  doing an optimistic update had no way to know it should roll back. */
 export async function renameConversation(id: string, title: string): Promise<void> {
-  await apiJson(`/sessions/${id}`, 'PATCH', { title })
+  const res = await apiJson(`/sessions/${id}`, 'PATCH', { title })
+  if (!res.ok) throw new Error(`rename failed (${res.status})`)
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await api(`/sessions/${id}`, { method: 'DELETE' })
+  const res = await api(`/sessions/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`delete failed (${res.status})`)
 }
 
 export async function fetchMessages(id: string): Promise<ChatMessage[]> {
@@ -89,4 +99,16 @@ export function relativeTime(iso: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
   return `${Math.floor(seconds / 86400)}d`
+}
+
+/** "just now" / "4m ago" / "2d ago" — `relativeTime` with the unit spelled out, for the
+ *  places that show it as a sentence rather than in a column. Past a month the relative
+ *  form stops being informative ("47d ago") and a date is what people actually want. */
+export function agoLabel(iso: string): string {
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  const days = Math.floor(seconds / 86400)
+  return days < 30 ? `${days}d ago` : new Date(iso).toLocaleDateString()
 }

@@ -6,25 +6,17 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { resetPassword, verifyEmail, AuthError, type Account } from '../lib/auth'
+import { Logo } from '../ui/icons'
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="gate">
       <div className="gate-card">
         <div className="gate-brand">
-          <span className="dash-mark" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 20 20">
-              <path
-                d="M3 3.5v13h13M7 12.5V8M11 12.5V4.5M15 12.5v-3"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
+          <span className="brand-mark" aria-hidden="true">
+            <Logo size={17} />
           </span>
-          <span className="dash-wordmark">Canvo</span>
+          <span className="brand-wordmark">Canvo</span>
         </div>
         {children}
       </div>
@@ -83,7 +75,7 @@ export function ResetPage({
           This signs you in here and signs you out everywhere else.
         </p>
 
-        <label className="field">
+        <label className="gate-field">
           <span>New password</span>
           <input
             type="password"

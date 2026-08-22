@@ -17,6 +17,9 @@ function Step({
   summary: string
   children?: React.ReactNode
 }) {
+  // A pending step is hidden once the run is over — nobody wants a permanent list of
+  // stages that didn't apply — but shown *while* it runs, because a checklist you can see
+  // the end of is what makes a forty-second wait legible.
   if (status === 'pending') return null
   const head = (
     <>
@@ -54,6 +57,18 @@ export function ActivityTrace({ activity, live }: { activity: RunActivity; live?
     : last.has_issues
       ? 'warn'
       : 'ok'
+
+  // While a run is streaming, the stages it has not reached yet are listed as waiting.
+  // These are the four the service actually emits — spec, plan, draw, critique — so the
+  // checklist is the pipeline, not a decorative progress bar.
+  const waiting = live
+    ? ([
+        !spec && (['Spec', 'reading your request'] as const),
+        spec && !plan && (['Plan', 'building the graph'] as const),
+        plan && !shapes && (['Draw', 'laying it out'] as const),
+        shapes && !passes.length && (['Review', 'checking the layout'] as const),
+      ].filter(Boolean) as (readonly [string, string])[])
+    : []
 
   return (
     <div className="trace">
@@ -182,6 +197,14 @@ export function ActivityTrace({ activity, live }: { activity: RunActivity; live?
           ))}
         </Step>
       )}
+
+      {waiting.map(([label, summary]) => (
+        <div className="step step--waiting" key={label}>
+          <span className="step-dot" data-status="waiting" aria-hidden="true" />
+          <span className="step-label">{label}</span>
+          <span className="step-summary">{summary}</span>
+        </div>
+      ))}
 
       {error && <p className="detail-error">{error}</p>}
     </div>
