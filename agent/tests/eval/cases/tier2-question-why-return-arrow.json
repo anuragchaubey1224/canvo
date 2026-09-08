@@ -1,0 +1,98 @@
+{
+  "id": "tier2-question-why-return-arrow",
+  "category": "tier2",
+  "kind": "question",
+  "description": "A question about the diagram \u2014 nothing should change. Intent must be 'answer'.",
+  "input": {
+    "base_plan": {
+      "title": "API Request Path",
+      "nodes": [
+        {
+          "id": "client",
+          "label": "Browser",
+          "kind": "client",
+          "group": "g1"
+        },
+        {
+          "id": "gateway",
+          "label": "API Gateway",
+          "kind": "service",
+          "group": "g1"
+        },
+        {
+          "id": "orders",
+          "label": "Order Service",
+          "kind": "service",
+          "group": "g2"
+        },
+        {
+          "id": "users",
+          "label": "User Service",
+          "kind": "service",
+          "group": "g2"
+        },
+        {
+          "id": "cache",
+          "label": "Cache",
+          "kind": "datastore",
+          "group": "g2"
+        },
+        {
+          "id": "db",
+          "label": "Database",
+          "kind": "datastore",
+          "group": "g2"
+        }
+      ],
+      "edges": [
+        {
+          "source": "client",
+          "target": "gateway",
+          "label": "request"
+        },
+        {
+          "source": "gateway",
+          "target": "orders"
+        },
+        {
+          "source": "gateway",
+          "target": "users"
+        },
+        {
+          "source": "orders",
+          "target": "cache",
+          "label": "lookup"
+        },
+        {
+          "source": "orders",
+          "target": "db",
+          "label": "miss"
+        },
+        {
+          "source": "gateway",
+          "target": "client",
+          "label": "response"
+        }
+      ],
+      "groups": [
+        {
+          "id": "g1",
+          "label": "1. Edge",
+          "color": "blue"
+        },
+        {
+          "id": "g2",
+          "label": "2. Services",
+          "color": "violet"
+        }
+      ]
+    },
+    "follow_up": "why is there an arrow from the api gateway back to the browser?"
+  },
+  "expect": {
+    "intent": "answer",
+    "reply_contains": [
+      "response"
+    ]
+  }
+}

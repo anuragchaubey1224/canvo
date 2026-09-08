@@ -1,0 +1,42 @@
+{
+  "id": "tier2-create-jwt-auth-detailed",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Detailed, well-specified auth workflow. Every stated component must survive; nothing invented beyond generic infra.",
+  "input": {
+    "request": "Design a JWT authentication workflow. A user submits credentials to a login endpoint, the auth service validates them against the user store, issues a short-lived access token and a refresh token, and the client calls a protected API with the access token. Include token refresh when the access token expires, and logout that revokes the refresh token."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "login",
+      "token",
+      "refresh",
+      "logout"
+    ],
+    "must_connect": [
+      [
+        "login",
+        "auth"
+      ],
+      [
+        "refresh",
+        "token"
+      ]
+    ],
+    "must_not_contain": [
+      "kubernetes",
+      "postgresql",
+      "mysql",
+      "redis",
+      "auth0",
+      "okta",
+      "keycloak"
+    ],
+    "nodes_min": 8,
+    "nodes_max": 22,
+    "edges_min": 8,
+    "edges_max": 30,
+    "max_refines": 3
+  }
+}

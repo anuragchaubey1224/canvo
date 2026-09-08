@@ -1,0 +1,27 @@
+{
+  "id": "tier2-create-webapp-db-vague",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Vague prompt that needs the model to fill gaps \u2014 the spec SHOULD declare assumptions rather than silently invent detail.",
+  "input": {
+    "request": "show how a web application talks to its database"
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "database"
+    ],
+    "must_not_contain": [
+      "postgresql",
+      "mysql",
+      "mongodb",
+      "dynamodb",
+      "redis"
+    ],
+    "nodes_min": 3,
+    "nodes_max": 16,
+    "edges_min": 2,
+    "edges_max": 20,
+    "expect_assumptions": true
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "tier2-create-onboarding-verification",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Decision-heavy onboarding flow with a verified/unverified branch and a resend loop.",
+  "input": {
+    "request": "Draw a user onboarding flow with email verification. After sign-up the system sends a verification email. If the user does not verify within a day, resend the email once. If verified, continue to profile setup and then to the dashboard. If still unverified after the resend, park the account as inactive."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "sign",
+      "verif",
+      "email",
+      "profile",
+      "dashboard"
+    ],
+    "must_not_contain": [
+      "sendgrid",
+      "mailgun",
+      "postgresql",
+      "kubernetes"
+    ],
+    "nodes_min": 6,
+    "nodes_max": 20,
+    "edges_min": 6,
+    "edges_max": 26
+  }
+}

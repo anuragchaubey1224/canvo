@@ -1,0 +1,101 @@
+{
+  "id": "tier2-edit-change-node-kinds",
+  "category": "tier2",
+  "kind": "edit",
+  "description": "Restyle two nodes by kind. No new nodes, no dropped edges.",
+  "input": {
+    "base_plan": {
+      "title": "API Request Path",
+      "nodes": [
+        {
+          "id": "client",
+          "label": "Browser",
+          "kind": "client",
+          "group": "g1"
+        },
+        {
+          "id": "gateway",
+          "label": "API Gateway",
+          "kind": "service",
+          "group": "g1"
+        },
+        {
+          "id": "orders",
+          "label": "Order Service",
+          "kind": "service",
+          "group": "g2"
+        },
+        {
+          "id": "users",
+          "label": "User Service",
+          "kind": "service",
+          "group": "g2"
+        },
+        {
+          "id": "cache",
+          "label": "Cache",
+          "kind": "datastore",
+          "group": "g2"
+        },
+        {
+          "id": "db",
+          "label": "Database",
+          "kind": "datastore",
+          "group": "g2"
+        }
+      ],
+      "edges": [
+        {
+          "source": "client",
+          "target": "gateway",
+          "label": "request"
+        },
+        {
+          "source": "gateway",
+          "target": "orders"
+        },
+        {
+          "source": "gateway",
+          "target": "users"
+        },
+        {
+          "source": "orders",
+          "target": "cache",
+          "label": "lookup"
+        },
+        {
+          "source": "orders",
+          "target": "db",
+          "label": "miss"
+        },
+        {
+          "source": "gateway",
+          "target": "client",
+          "label": "response"
+        }
+      ],
+      "groups": [
+        {
+          "id": "g1",
+          "label": "1. Edge",
+          "color": "blue"
+        },
+        {
+          "id": "g2",
+          "label": "2. Services",
+          "color": "violet"
+        }
+      ]
+    },
+    "follow_up": "make the cache and the database both proper datastore cylinders"
+  },
+  "expect": {
+    "intent": "edit",
+    "must_contain": [
+      "cache",
+      "database"
+    ],
+    "nodes_min": 6,
+    "nodes_max": 6
+  }
+}

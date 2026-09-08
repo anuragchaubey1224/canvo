@@ -1,0 +1,43 @@
+{
+  "id": "tier2-create-ridesharing-architecture",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Architecture-type request. Generic service names only; no cloud-vendor product names.",
+  "input": {
+    "request": "Sketch a microservices architecture for a ride-sharing app: a mobile client, an API gateway, a rider service, a driver service, a trip/matching service, a pricing service, a payments service, a notifications service, and a shared datastore for each. Show the gateway routing to the services and the trip service calling pricing and payments."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "gateway",
+      "rider",
+      "driver",
+      "pricing",
+      "payment",
+      "notif"
+    ],
+    "must_connect": [
+      [
+        "gateway",
+        "rider"
+      ],
+      [
+        "trip",
+        "pricing"
+      ]
+    ],
+    "must_not_contain": [
+      "aws",
+      "gcp",
+      "azure",
+      "kubernetes",
+      "kafka",
+      "postgresql",
+      "dynamodb"
+    ],
+    "nodes_min": 8,
+    "nodes_max": 24,
+    "edges_min": 7,
+    "edges_max": 30
+  }
+}

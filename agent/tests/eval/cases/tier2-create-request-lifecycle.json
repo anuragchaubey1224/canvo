@@ -1,0 +1,38 @@
+{
+  "id": "tier2-create-request-lifecycle",
+  "category": "tier2",
+  "kind": "create",
+  "description": "A request path through infrastructure. Linear-ish with a cache hit/miss branch.",
+  "input": {
+    "request": "Show the lifecycle of an HTTP request in a typical web stack: the browser hits a load balancer, which forwards to a web server, which calls an application service. The service checks a cache; on a miss it reads the database and populates the cache; on a hit it returns straight away. The response then flows back to the browser."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "load balancer",
+      "cache",
+      "database"
+    ],
+    "must_connect": [
+      [
+        "load balancer",
+        "web"
+      ],
+      [
+        "cache",
+        "database"
+      ]
+    ],
+    "must_not_contain": [
+      "nginx",
+      "redis",
+      "postgresql",
+      "cloudflare",
+      "varnish"
+    ],
+    "nodes_min": 5,
+    "nodes_max": 18,
+    "edges_min": 5,
+    "edges_max": 24
+  }
+}

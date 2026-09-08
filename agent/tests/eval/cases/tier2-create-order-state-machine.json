@@ -1,0 +1,29 @@
+{
+  "id": "tier2-create-order-state-machine",
+  "category": "tier2",
+  "kind": "create",
+  "description": "State-machine request: order status lifecycle. Decision/branch heavy.",
+  "input": {
+    "request": "Draw the state machine for an order's status: it starts pending, moves to paid once payment clears, then to shipped, then delivered. From pending or paid it can be cancelled. A delivered order can be refunded. Show every transition."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "pending",
+      "paid",
+      "shipped",
+      "delivered",
+      "cancel",
+      "refund"
+    ],
+    "must_not_contain": [
+      "kubernetes",
+      "postgresql",
+      "stripe"
+    ],
+    "nodes_min": 5,
+    "nodes_max": 16,
+    "edges_min": 5,
+    "edges_max": 20
+  }
+}

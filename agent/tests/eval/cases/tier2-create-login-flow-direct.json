@@ -1,0 +1,26 @@
+{
+  "id": "tier2-create-login-flow-direct",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Very short prompt (< 24 chars of description) \u2014 skips the Spec Writer, exercises the planner's _SYSTEM_DIRECT path. No spec means no assumptions section to check.",
+  "input": {
+    "request": "draw a login flow"
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "login"
+    ],
+    "must_not_contain": [
+      "kubernetes",
+      "postgresql",
+      "redis",
+      "okta",
+      "auth0"
+    ],
+    "nodes_min": 3,
+    "nodes_max": 16,
+    "edges_min": 2,
+    "edges_max": 22
+  }
+}

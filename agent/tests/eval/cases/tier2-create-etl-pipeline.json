@@ -1,0 +1,43 @@
+{
+  "id": "tier2-create-etl-pipeline",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Data pipeline. Named stages must all appear; storage stays generic.",
+  "input": {
+    "request": "Diagram an ETL pipeline: raw files land in object storage, an ingestion job loads them, a validation step rejects bad rows to a dead-letter store, a transformation step cleans and enriches the rest, a load step writes to the data warehouse, and a BI tool reads the warehouse for dashboards."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "storage",
+      "ingest",
+      "valid",
+      "transform",
+      "warehouse",
+      "dashboard"
+    ],
+    "must_connect": [
+      [
+        "ingest",
+        "valid"
+      ],
+      [
+        "load",
+        "warehouse"
+      ]
+    ],
+    "must_not_contain": [
+      "s3",
+      "airflow",
+      "snowflake",
+      "redshift",
+      "dbt",
+      "spark",
+      "kafka"
+    ],
+    "nodes_min": 6,
+    "nodes_max": 20,
+    "edges_min": 5,
+    "edges_max": 24
+  }
+}

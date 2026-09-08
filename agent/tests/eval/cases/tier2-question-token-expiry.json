@@ -1,0 +1,118 @@
+{
+  "id": "tier2-question-token-expiry",
+  "category": "tier2",
+  "kind": "question",
+  "description": "Question grounded in the auth diagram. No ops.",
+  "input": {
+    "base_plan": {
+      "title": "JWT Authentication",
+      "nodes": [
+        {
+          "id": "client",
+          "label": "Client App",
+          "kind": "client",
+          "group": "g1"
+        },
+        {
+          "id": "login",
+          "label": "Login Endpoint",
+          "kind": "service",
+          "subtitle": "POST /auth/login",
+          "group": "g1"
+        },
+        {
+          "id": "auth",
+          "label": "Auth Service",
+          "kind": "service",
+          "group": "g1"
+        },
+        {
+          "id": "users",
+          "label": "User Store",
+          "kind": "datastore",
+          "group": "g1"
+        },
+        {
+          "id": "token",
+          "label": "Token Store",
+          "kind": "datastore",
+          "group": "g2"
+        },
+        {
+          "id": "api",
+          "label": "Protected API",
+          "kind": "service",
+          "subtitle": "GET /me",
+          "group": "g2"
+        },
+        {
+          "id": "refresh",
+          "label": "Refresh Endpoint",
+          "kind": "service",
+          "subtitle": "POST /auth/refresh",
+          "group": "g2"
+        }
+      ],
+      "edges": [
+        {
+          "source": "client",
+          "target": "login",
+          "label": "credentials"
+        },
+        {
+          "source": "login",
+          "target": "auth"
+        },
+        {
+          "source": "auth",
+          "target": "users",
+          "label": "verify"
+        },
+        {
+          "source": "auth",
+          "target": "token",
+          "label": "store"
+        },
+        {
+          "source": "auth",
+          "target": "client",
+          "label": "tokens"
+        },
+        {
+          "source": "client",
+          "target": "api",
+          "label": "access token"
+        },
+        {
+          "source": "client",
+          "target": "refresh",
+          "label": "expired"
+        },
+        {
+          "source": "refresh",
+          "target": "token",
+          "label": "rotate"
+        }
+      ],
+      "groups": [
+        {
+          "id": "g1",
+          "label": "1. Login & Issuance",
+          "color": "blue"
+        },
+        {
+          "id": "g2",
+          "label": "2. Use & Refresh",
+          "color": "green"
+        }
+      ]
+    },
+    "follow_up": "what happens in this diagram when the access token expires?"
+  },
+  "expect": {
+    "intent": "answer",
+    "reply_contains": [
+      "refresh"
+    ]
+  }
+}

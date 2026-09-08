@@ -1,0 +1,119 @@
+{
+  "id": "tier2-question-scaling",
+  "category": "tier2",
+  "kind": "question",
+  "description": "Open-ended question about the diagram. Intent 'answer', diagram untouched.",
+  "input": {
+    "base_plan": {
+      "title": "Checkout Pipeline",
+      "nodes": [
+        {
+          "id": "cart",
+          "label": "Cart",
+          "kind": "client",
+          "group": "p1"
+        },
+        {
+          "id": "checkout",
+          "label": "Checkout Service",
+          "kind": "service",
+          "group": "p1"
+        },
+        {
+          "id": "inventory",
+          "label": "Inventory Service",
+          "kind": "service",
+          "group": "p1"
+        },
+        {
+          "id": "payment",
+          "label": "Payment Service",
+          "kind": "service",
+          "group": "p2"
+        },
+        {
+          "id": "orders",
+          "label": "Order Store",
+          "kind": "datastore",
+          "group": "p2"
+        },
+        {
+          "id": "fulfil",
+          "label": "Fulfilment Service",
+          "kind": "service",
+          "group": "p3"
+        },
+        {
+          "id": "notify",
+          "label": "Notification Service",
+          "kind": "service",
+          "group": "p3"
+        },
+        {
+          "id": "analytics",
+          "label": "Analytics Service",
+          "kind": "service",
+          "group": "p3"
+        }
+      ],
+      "edges": [
+        {
+          "source": "cart",
+          "target": "checkout",
+          "label": "submit"
+        },
+        {
+          "source": "checkout",
+          "target": "inventory",
+          "label": "reserve"
+        },
+        {
+          "source": "checkout",
+          "target": "payment",
+          "label": "charge"
+        },
+        {
+          "source": "payment",
+          "target": "orders",
+          "label": "record"
+        },
+        {
+          "source": "orders",
+          "target": "fulfil",
+          "label": "ship"
+        },
+        {
+          "source": "fulfil",
+          "target": "notify",
+          "label": "notify"
+        },
+        {
+          "source": "orders",
+          "target": "analytics",
+          "label": "track"
+        }
+      ],
+      "groups": [
+        {
+          "id": "p1",
+          "label": "1. Order",
+          "color": "blue"
+        },
+        {
+          "id": "p2",
+          "label": "2. Payment",
+          "color": "orange"
+        },
+        {
+          "id": "p3",
+          "label": "3. Settlement",
+          "color": "green"
+        }
+      ]
+    },
+    "follow_up": "which part of this pipeline would need to scale first under heavy load?"
+  },
+  "expect": {
+    "intent": "answer"
+  }
+}

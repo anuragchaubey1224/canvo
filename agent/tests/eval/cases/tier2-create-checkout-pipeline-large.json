@@ -1,0 +1,40 @@
+{
+  "id": "tier2-create-checkout-pipeline-large",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Large create: multi-phase e-commerce checkout with error and alternate paths.",
+  "input": {
+    "request": "Draw the checkout pipeline for an online store. The shopper reviews their cart, enters shipping and payment details, the order service reserves inventory, the payment service charges the card, and on success the fulfilment service ships the order and a notification service emails a receipt. If payment fails, release the inventory and show the shopper an error. If an item is out of stock, offer a backorder."
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "cart",
+      "payment",
+      "inventory",
+      "fulfil",
+      "notif"
+    ],
+    "must_connect": [
+      [
+        "cart",
+        "payment"
+      ],
+      [
+        "payment",
+        "fulfil"
+      ]
+    ],
+    "must_not_contain": [
+      "stripe",
+      "paypal",
+      "kubernetes",
+      "postgresql",
+      "kafka"
+    ],
+    "nodes_min": 9,
+    "nodes_max": 24,
+    "edges_min": 9,
+    "edges_max": 34
+  }
+}

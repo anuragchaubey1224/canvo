@@ -34,6 +34,7 @@ class AggregateReport:
     degradation_rate: float | None
     mean_repairs: float | None
     budget_capped_rate: float | None = None  # fraction where the cost cap fired (report-only)
+    label: str = "Tier 1"  # what the header reads; Tier 2 reuses this same shape
     degraded_cases: list[str] = field(default_factory=list)
     invalid_cases: list[str] = field(default_factory=list)  # blocking_issues > 0
 
@@ -44,7 +45,7 @@ class AggregateReport:
 
     def render(self) -> str:
         lines = [
-            f"Tier 1 — {self.n} case(s)",
+            f"{self.label} — {self.n} case(s)",
             f"  structural validity   {_pct(self.structural_validity)}",
             f"  first-pass clean      {_pct(self.first_pass_clean_rate)}",
             f"  refine rate           {_pct(self.refine_rate)}",
@@ -62,7 +63,7 @@ class AggregateReport:
         return "\n".join(lines)
 
 
-def aggregate(records: Mapping[str, RunRecord]) -> AggregateReport:
+def aggregate(records: Mapping[str, RunRecord], *, label: str = "Tier 1") -> AggregateReport:
     """`records` keyed by case id, so a failure in the report can be named, not just counted."""
     n = len(records)
     invalid = sorted(cid for cid, r in records.items() if r.blocking_issues > 0)
@@ -81,6 +82,7 @@ def aggregate(records: Mapping[str, RunRecord]) -> AggregateReport:
         degradation_rate=_rate(len(degraded), n),
         mean_repairs=round(sum(repairs) / n, 2) if n else None,
         budget_capped_rate=_rate(sum(1 for r in records.values() if r.budget_capped), n),
+        label=label,
         degraded_cases=degraded,
         invalid_cases=invalid,
     )

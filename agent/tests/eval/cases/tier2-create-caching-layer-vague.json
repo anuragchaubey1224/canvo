@@ -1,0 +1,27 @@
+{
+  "id": "tier2-create-caching-layer-vague",
+  "category": "tier2",
+  "kind": "create",
+  "description": "Hallucination bait: 'caching layer' invites a product name. A generic 'Cache' box is right; 'Redis'/'Memcached' is not.",
+  "input": {
+    "request": "add a caching layer between our API and our database and show how a read works"
+  },
+  "expect": {
+    "intent": "create",
+    "must_contain": [
+      "cache",
+      "database"
+    ],
+    "must_not_contain": [
+      "redis",
+      "memcached",
+      "hazelcast",
+      "elasticache"
+    ],
+    "nodes_min": 3,
+    "nodes_max": 16,
+    "edges_min": 2,
+    "edges_max": 20,
+    "expect_assumptions": true
+  }
+}
