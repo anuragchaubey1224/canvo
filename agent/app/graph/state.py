@@ -77,6 +77,11 @@ class AgentState(TypedDict, total=False):
     # loop control / accounting
     iterations: int
     cost_usd: float
+    # Set true when a discretionary model call (the plan repair pass, the vision Critic)
+    # was skipped because the run had already spent its per-run cost cap. A capped run
+    # still returns a diagram — it just misses the extras — so this flag is what keeps it
+    # from looking identical to a clean one.
+    budget_capped: bool
     # Token/cost accounting for this run — an app.usage.UsageMeter, or absent in tests
     # that stub the model. Typed loosely to keep the state module import-free.
     meter: object

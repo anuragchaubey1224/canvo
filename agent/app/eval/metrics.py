@@ -33,6 +33,7 @@ class AggregateReport:
     refine_rate: float | None  # fraction that needed >=1 refine
     degradation_rate: float | None
     mean_repairs: float | None
+    budget_capped_rate: float | None = None  # fraction where the cost cap fired (report-only)
     degraded_cases: list[str] = field(default_factory=list)
     invalid_cases: list[str] = field(default_factory=list)  # blocking_issues > 0
 
@@ -50,6 +51,7 @@ class AggregateReport:
             f"  degradation rate      {_pct(self.degradation_rate)}",
             "  mean repairs          "
             + (f"{self.mean_repairs}" if self.mean_repairs is not None else "n/a"),
+            f"  budget-capped rate    {_pct(self.budget_capped_rate)}",
         ]
         if self.invalid_cases:
             lines.append(f"  INVALID  (blocking validator issues): {', '.join(self.invalid_cases)}")
@@ -78,6 +80,7 @@ def aggregate(records: Mapping[str, RunRecord]) -> AggregateReport:
         refine_rate=_rate(sum(1 for r in records.values() if r.refines >= 1), n),
         degradation_rate=_rate(len(degraded), n),
         mean_repairs=round(sum(repairs) / n, 2) if n else None,
+        budget_capped_rate=_rate(sum(1 for r in records.values() if r.budget_capped), n),
         degraded_cases=degraded,
         invalid_cases=invalid,
     )

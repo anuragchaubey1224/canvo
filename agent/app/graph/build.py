@@ -30,7 +30,11 @@ def _after_edit(state: AgentState) -> str:
 
 def _should_refine(state: AgentState) -> str:
     """Route the Critic's verdict. The Critic already applied the iteration cap when it
-    set `needs_refine`, so we just honour it (and re-check the cap defensively)."""
+    set `needs_refine`, so we just honour it (and re-check the cap defensively). A run
+    that has hit its cost cap does not loop again either — the refine passes are
+    deterministic today, but this keeps the cap a hard bound if that ever changes."""
+    if state.get("budget_capped"):
+        return "done"
     critique = state.get("critique") or {}
     if critique.get("needs_refine") and state.get("iterations", 0) < MAX_ITERATIONS:
         return "refine"

@@ -1,13 +1,13 @@
 """What a run cost.
 
 Every model call in the pipeline goes through a chat model built by `app.llm`, and every
-one of them is billed. Until now none of that was recorded: `state.cost_usd` was declared
-and never assigned, and `guardrails.within_budget()` was written and never called, so the
-per-run cost cap did not exist.
+one of them is billed. A `UsageMeter` is created per run, passed to every model call as a
+LangChain callback, and ends up holding the token counts for the whole graph broken down
+by model. Cost is derived from those counts where we know the price.
 
-This module is the missing half. A `UsageMeter` is created per run, passed to every model
-call as a LangChain callback, and ends up holding the token counts for the whole graph
-broken down by model. Cost is derived from those counts where we know the price.
+The meter is read two ways: `snapshot_cost()` mid-run, so `guardrails.within_budget()` can
+skip a discretionary call that would blow the per-run cap; and the full totals at the end,
+folded into the run's `RunRecord`.
 
 Two deliberate limits:
 
@@ -87,6 +87,8 @@ class UsageMeter:
 
         Called before reading totals rather than continuously, because the handler
         accumulates its own dict and we want one place where the two representations meet.
+        Idempotent — each entry is overwritten from the handler's running total, so it is
+        safe to call repeatedly during a run.
         """
         for model, usage in (self._handler.usage_metadata or {}).items():
             entry = self.by_model.setdefault(model, ModelUsage())
@@ -94,6 +96,13 @@ class UsageMeter:
             # neither leaves them absent rather than zero.
             entry.input_tokens = int(usage.get("input_tokens", 0) or 0)
             entry.output_tokens = int(usage.get("output_tokens", 0) or 0)
+
+    def snapshot_cost(self) -> float:
+        """Cost of everything billed so far this run. `collect()` then read, for the
+        mid-run budget checks in `guardrails.within_budget()` — the live `cost_usd`
+        property reads `by_model`, which only `collect()` refreshes."""
+        self.collect()
+        return self.cost_usd
 
     @property
     def input_tokens(self) -> int:

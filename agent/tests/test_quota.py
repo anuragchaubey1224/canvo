@@ -360,3 +360,119 @@ def test_a_finished_run_closes_out_its_ledger_row(client, env, monkeypatch, tmp_
     assert record["nodes"] == 4
     assert record["intent"] == "create"
     assert "stage_ms" in record
+
+
+# --- Phase 01: how a run that didn't finish is recorded ---------------------------------
+#
+# The row is created before the graph runs. It used to be closed out only on success, so
+# `outcome` was NULL for every run that failed, was cancelled, or was refused — which
+# conflated "the model errored", "the user hit Stop", and "the process was killed". Each
+# now gets its own terminal outcome, and a refused run is kept out of the allowance count.
+
+
+def _rows(db_file):
+    """Every Run row, oldest first — read on a fresh engine, like the test above."""
+    import asyncio
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker as _sm
+    from sqlalchemy.ext.asyncio import create_async_engine as _ce
+
+    from app.db.models import Run
+
+    async def go():
+        eng = _ce(f"sqlite+aiosqlite:///{db_file}")
+        async with _sm(eng, expire_on_commit=False)() as db:
+            rows = list((await db.execute(select(Run).order_by(Run.id))).scalars().all())
+        await eng.dispose()
+        return rows
+
+    return asyncio.run(go())
+
+
+def test_a_refused_run_is_recorded_but_does_not_count(client, env, monkeypatch, tmp_path):
+    """A refusal is a fact about runs — how often people are turned away — so it lands in
+    the same table. But it spent nothing, so it must not become an allowance the next
+    request has to get past."""
+    import app.main
+
+    env(user=1, daily=0)
+    db_file = tmp_path / "quota.db"
+
+    async def nothing(state):
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    monkeypatch.setattr(app.main.graph, "astream", lambda s, on_step=None: nothing(s))
+    body = {"message": "", "payload": "draw a system", "session_id": "s1"}
+
+    assert client.post("/agent/stream", json=body).status_code == 200  # spends the one run
+    assert client.post("/agent/stream", json=body).status_code == 429  # refused
+    assert client.post("/agent/stream", json=body).status_code == 429  # still refused, not 3/1
+
+    rows = _rows(db_file)
+    outcomes = [r.outcome for r in rows]
+    assert outcomes.count("refused") == 2, "both refusals recorded"
+    assert outcomes.count("completed") == 1
+
+    # The refusals did not inflate the allowance: the account has used 1 of 1, not 3.
+    assert client.get("/auth/me").json()["runs_used"] == 1
+
+
+def test_a_failed_run_is_recorded_as_failed(client, env, monkeypatch, tmp_path):
+    """The graph raised mid-stream. The row closes as `failed` (not left NULL), and the
+    stream ends with an explicit error rather than a truncated success."""
+    import json
+
+    import app.main
+
+    env(user=3, daily=0)
+    db_file = tmp_path / "quota.db"
+
+    async def blow_up(state):
+        yield "planner", {"plan_report": {"nodes": 2, "edges": 1, "intent": "create"}}
+        raise RuntimeError("planner exploded")
+
+    monkeypatch.setattr(app.main.graph, "astream", lambda s, on_step=None: blow_up(s))
+
+    res = client.post(
+        "/agent/stream", json={"message": "", "payload": "draw a system", "session_id": "s1"}
+    )
+    assert res.status_code == 200
+    body = res.read().decode()
+    assert "event: error" in body
+    assert "event: done" not in body
+
+    (row,) = _rows(db_file)
+    assert row.outcome == "failed"
+    assert row.metrics, "a failed run is still measured — it still cost tokens"
+    assert json.loads(row.metrics)["outcome"] == "failed"
+
+
+def test_a_stopped_run_is_recorded_as_stopped(client, env, monkeypatch, tmp_path):
+    """The client hung up (the Stop button aborts the fetch → the response task is
+    cancelled → CancelledError in the generator). The row closes as `stopped`, and the
+    cancellation still propagates."""
+    import asyncio
+
+    import app.main
+
+    env(user=3, daily=0)
+    db_file = tmp_path / "quota.db"
+
+    async def hang_up(state):
+        yield "drawer", {"actions": []}
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(app.main.graph, "astream", lambda s, on_step=None: hang_up(s))
+
+    try:
+        client.post(
+            "/agent/stream",
+            json={"message": "", "payload": "draw a system", "session_id": "s1"},
+        ).read()
+    except BaseException:
+        pass  # the cancellation is expected to surface through the client
+
+    (row,) = _rows(db_file)
+    assert row.outcome == "stopped", f"expected a stopped row, got {row.outcome!r}"

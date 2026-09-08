@@ -51,6 +51,10 @@ class RunRecord:
     degraded: bool = False
     degraded_reason: str = ""
     repairs: int = 0
+    # True when the per-run cost cap fired and a discretionary call (the plan repair pass,
+    # the vision Critic) was skipped. Report-only — a capped run still produced a diagram —
+    # but it should never be mistaken for a first-pass-clean one.
+    budget_capped: bool = False
     # Issue kinds raised anywhere in the run, and how many of each. Kinds come from the
     # validator (`missing_components`, `isolated_node`, …) and the critic (`overlap`,
     # `dangling_arrow`, `vision:crowding`, …).
@@ -150,6 +154,7 @@ def record_from_run(
         degraded=bool(report.get("degraded")),
         degraded_reason=str(report.get("degraded") or ""),
         repairs=len(report.get("fixes", []) or []),
+        budget_capped=bool(state.get("budget_capped")),
         issues=dict(issues),
         blocking_issues=blocking,
         # `iterations` counts drawer visits; the first one is not a refine.

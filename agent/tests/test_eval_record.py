@@ -28,6 +28,7 @@ EXPECTED_FIELDS = {
     "degraded",
     "degraded_reason",
     "repairs",
+    "budget_capped",
     "issues",
     "blocking_issues",
     "refines",
@@ -133,6 +134,13 @@ def test_refines_exclude_the_first_draw():
     assert record_from_run({"iterations": 1}, outcome="completed").refines == 0
     assert record_from_run({"iterations": 3}, outcome="completed").refines == 2
     assert record_from_run({}, outcome="failed").refines == 0
+
+
+def test_budget_capped_is_carried_from_state():
+    """The per-run cost cap sets this on state when it skips a discretionary call. A
+    capped run still drew a diagram, so it is report-only — but it must not read as clean."""
+    assert record_from_run({}, outcome="completed").budget_capped is False
+    assert record_from_run({"budget_capped": True}, outcome="completed").budget_capped is True
 
 
 def test_degradation_is_recorded_with_its_reason():

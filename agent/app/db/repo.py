@@ -168,6 +168,32 @@ async def record_run(
     return run
 
 
+async def record_refused_run(
+    db: AsyncSession,
+    user_id: str | None,
+    session_id: str | None,
+    input_kind: str,
+    metrics: str | None = None,
+) -> Run:
+    """A row for a run the quota gate turned away before it could spend anything.
+
+    "How often are people turned away" is a question about runs, so it lives in the same
+    table — but a refused run cost nothing, so `count_runs_*` exclude `outcome='refused'`
+    and it never eats an allowance.
+    """
+    run = Run(
+        user_id=user_id,
+        session_id=session_id,
+        input_kind=input_kind,
+        outcome="refused",
+        metrics=metrics,
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
 async def complete_run(
     db: AsyncSession,
     run_id: int,
@@ -197,14 +223,23 @@ async def complete_run(
     await db.commit()
 
 
+# A refused run spent nothing, so it must not count against any allowance. `is_distinct_from`
+# keeps NULL-outcome rows (a run that died mid-flight — still spent) in the count.
+_SPENT = Run.outcome.is_distinct_from("refused")
+
+
 async def count_runs_for_user(db: AsyncSession, user_id: str) -> int:
-    rows = await db.execute(select(func.count()).select_from(Run).where(Run.user_id == user_id))
+    rows = await db.execute(
+        select(func.count()).select_from(Run).where(Run.user_id == user_id, _SPENT)
+    )
     return int(rows.scalar_one())
 
 
 async def count_runs_since(db: AsyncSession, since: datetime) -> int:
     """Every run across the whole deployment since `since` — the global daily cap."""
-    rows = await db.execute(select(func.count()).select_from(Run).where(Run.created_at >= since))
+    rows = await db.execute(
+        select(func.count()).select_from(Run).where(Run.created_at >= since, _SPENT)
+    )
     return int(rows.scalar_one())
 
 

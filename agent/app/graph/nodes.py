@@ -29,10 +29,11 @@ from app.graph.route import route_arrows
 from app.graph.spec_llm import spec_to_plan, write_spec
 from app.graph.state import AgentState, Critique, PlanReportDict
 from app.graph.validate_plan import repair_brief, sanitize, validate
-from app.guardrails import MAX_ITERATIONS
+from app.guardrails import MAX_ITERATIONS, within_budget
 from app.schema import AgentAction, Shape
 from app.tools.parse_openapi import looks_like_openapi, parse_openapi
 from app.tools.parse_sql import looks_like_sql, parse_sql
+from app.usage import UsageMeter
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,15 @@ _MIN_SPEC_CHARS = 24
 # How much the Critic widens the layout when it finds crowding. > any box-height/row-pitch
 # ratio we hit in practice, so one refine usually clears the overlap; loop is capped anyway.
 _GAP_BUMP = 1.5
+
+
+def _over_budget(state: AgentState) -> bool:
+    """Has this run spent its per-run cost cap? False when there is no meter (a test that
+    stubs the model) or the models used carry no price — we only cap what we can price."""
+    meter = state.get("meter")
+    if not isinstance(meter, UsageMeter):
+        return False
+    return not within_budget(meter.snapshot_cost())
 
 
 def router(state: AgentState) -> AgentState:
@@ -203,11 +213,17 @@ async def planner(state: AgentState) -> AgentState:
             fixes = sanitize(llm_plan)
             report = validate(llm_plan, spec)
             repaired = False
+            capped = False
 
             # One repair pass, and only for content the validator can name. We keep the
             # result only if it strictly reduces the blocking issues, so a bad repair
-            # can never make the diagram worse than the first attempt.
-            if report.blocking:
+            # can never make the diagram worse than the first attempt. Skipped outright
+            # once the run is over its cost cap — the un-repaired plan still draws, and
+            # the report says the issues stand.
+            if report.blocking and _over_budget(state):
+                capped = True
+                logger.warning("over the per-run cost cap; skipping the plan repair pass")
+            elif report.blocking:
                 candidate = await refine_plan(
                     llm_plan,
                     repair_brief(report.blocking),
@@ -238,7 +254,7 @@ async def planner(state: AgentState) -> AgentState:
                 "rejected": [],
                 "summary": "",
             }
-            return {
+            update: AgentState = {
                 "llm_plan": llm_plan,
                 "plan_report": plan_report,
                 "plan": {
@@ -251,6 +267,9 @@ async def planner(state: AgentState) -> AgentState:
                     "notes": "LLM plan from spec" if spec else "LLM plan from text",
                 },
             }
+            if capped:
+                update["budget_capped"] = True
+            return update
 
     return {
         "plan": {
@@ -318,9 +337,12 @@ async def critic(state: AgentState) -> AgentState:
     source = "geometry"
     summary = geometry_summary(report)
 
-    # Vision pass: only on the first visit (bounds cost/latency to one call per run).
+    # Vision pass: only on the first visit (bounds cost/latency to one call per run), and
+    # only while the run has cost-cap headroom — it is the single most expensive call in
+    # the graph, so it is the first thing a capped run does without.
     vision_says_crowded = False
-    if iters == 1 and state.get("vision_enabled", True):
+    capped = _over_budget(state)
+    if iters == 1 and state.get("vision_enabled", True) and not capped:
         context = state.get("user_message") or state.get("payload") or ""
         vc = await critique_image(actions, context=context, meter=state.get("meter"))
         if vc is not None:
@@ -354,4 +376,6 @@ async def critic(state: AgentState) -> AgentState:
     updates: AgentState = {"critique": critique, "iterations": iters}
     if needs_refine:
         updates["layout_params"] = {"gap_scale": round(scale * _GAP_BUMP, 3)}
+    if capped:
+        updates["budget_capped"] = True
     return updates

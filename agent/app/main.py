@@ -102,6 +102,48 @@ def _start_of_utc_day():
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+async def _close_run_row(
+    run_id: int,
+    *,
+    state: dict,
+    outcome: str,
+    passes: list[dict],
+    stage_ms: dict[str, float],
+    total_ms: float,
+    meter: UsageMeter,
+    drawn: int,
+) -> None:
+    """Write the run's outcome and measured record onto its ledger row.
+
+    The row was created before the graph started (quota is spent up front), and this is
+    the only place its own measurements are kept — see EVAL-PLAN.md §3. Best-effort:
+    losing a metrics row must never turn into a lost diagram or a masked failure. Called
+    for every terminal state — `completed`, `failed`, and (shielded, so a cancelled await
+    can't drop it) `stopped`.
+    """
+    try:
+        record = record_from_run(
+            state,
+            outcome=outcome,
+            passes=passes,
+            stage_ms=stage_ms,
+            total_ms=total_ms,
+            meter=meter,
+            shapes=drawn,
+        )
+        async with session_factory()() as db:
+            await repo.complete_run(
+                db,
+                run_id,
+                outcome=record.outcome,
+                shape_count=drawn,
+                iterations=len(passes),
+                metrics=json.dumps(record.as_dict()),
+            )
+    except Exception:
+        logger.warning("could not record metrics for run %s", run_id, exc_info=True)
+
+
 # Every route below takes `current_user`. Identity is a parameter, not ambient state, so
 # a route that forgets to scope its query has no user id to filter by and fails review
 # rather than quietly serving someone else's diagrams.
@@ -238,6 +280,20 @@ async def agent_stream(
         used_today=await repo.count_runs_since(db, _start_of_utc_day()),
     )
     if not verdict.allowed:
+        # Log the refusal in the same table as every other run, so "how often are people
+        # turned away" is one query. It spent nothing, so `count_runs_*` skip it — it does
+        # not become an allowance the next request has to get past.
+        refused = record_from_run({"input_kind": payload.input_kind or "text"}, outcome="refused")
+        try:
+            await repo.record_refused_run(
+                db,
+                user_id=user.id,
+                session_id=payload.session_id,
+                input_kind=payload.input_kind or "text",
+                metrics=json.dumps(refused.as_dict()),
+            )
+        except Exception:
+            logger.warning("could not record a refused run for %s", user.id, exc_info=True)
         raise HTTPException(
             status_code=429,
             detail=verdict.reason,
@@ -300,105 +356,132 @@ async def agent_stream(
                 yield f"data: {action.model_dump_json()}\n\n"
                 await asyncio.sleep(delay)
 
-        async for node, out in graph.astream(state, timed):
-            if not out:
-                continue
-            # Reveal the diagram the moment the Drawer has one, rather than holding it
-            # back until the vision Critic has finished looking at it — that pass costs
-            # ~10s and the user was staring at an empty canvas for all of it. A refine
-            # replaces the drawing in place, announced by `redraw`.
-            if node == "drawer" and out.get("actions"):
-                if drawn:
-                    yield "event: redraw\ndata: {}\n\n"
-                async for chunk in draw(out["actions"]):
-                    yield chunk
-                drawn = len(out["actions"])
-            if node == "specifier" and out.get("spec"):
-                spec = out["spec"]
-                yield (
-                    "event: spec\ndata: "
-                    + json.dumps(
-                        {
-                            "title": spec.title,
-                            "diagram_type": spec.diagram_type,
-                            "components": spec.component_names,
-                            "flow_steps": len(spec.flow_steps),
-                            "phases": spec.phases,
-                            "assumptions": spec.assumptions,
-                            "raw": spec.raw,
-                        }
+        # How the run ended. Stays "completed" unless the graph raises (`failed`) or the
+        # client hangs up mid-stream (`stopped`, usually the Stop button). Every terminal
+        # path closes the ledger row with this — a NULL outcome used to be the only trace
+        # of a run that didn't finish, which conflated "the model errored" with "the
+        # process was killed".
+        outcome = "completed"
+        try:
+            async for node, out in graph.astream(state, timed):
+                if not out:
+                    continue
+                # Reveal the diagram the moment the Drawer has one, rather than holding it
+                # back until the vision Critic has finished looking at it — that pass costs
+                # ~10s and the user was staring at an empty canvas for all of it. A refine
+                # replaces the drawing in place, announced by `redraw`.
+                if node == "drawer" and out.get("actions"):
+                    if drawn:
+                        yield "event: redraw\ndata: {}\n\n"
+                    async for chunk in draw(out["actions"]):
+                        yield chunk
+                    drawn = len(out["actions"])
+                if node == "specifier" and out.get("spec"):
+                    spec = out["spec"]
+                    yield (
+                        "event: spec\ndata: "
+                        + json.dumps(
+                            {
+                                "title": spec.title,
+                                "diagram_type": spec.diagram_type,
+                                "components": spec.component_names,
+                                "flow_steps": len(spec.flow_steps),
+                                "phases": spec.phases,
+                                "assumptions": spec.assumptions,
+                                "raw": spec.raw,
+                            }
+                        )
+                        + "\n\n"
                     )
-                    + "\n\n"
-                )
-                await asyncio.sleep(0.05)
-            if node == "editor" and out.get("reply"):
-                yield "event: answer\ndata: " + json.dumps({"reply": out["reply"]}) + "\n\n"
-                await asyncio.sleep(0.05)
-            if node == "planner" and out.get("plan_report"):
-                yield "event: plan\ndata: " + json.dumps(out["plan_report"]) + "\n\n"
-                await asyncio.sleep(0.05)
-            if node == "critic" and out.get("critique"):
-                c = out["critique"]
-                passes.append(c)
-                yield (
-                    "event: critique\ndata: "
-                    + json.dumps(
-                        {
-                            "pass": len(passes),
-                            "has_issues": c.get("has_issues", False),
-                            "needs_refine": c.get("needs_refine", False),
-                            "source": c.get("source"),
-                            "summary": c.get("summary"),
-                            "gap_scale": c.get("gap_scale"),
-                            "issue_count": len(c.get("issues", [])),
-                            "issues": c.get("issues", []),
-                        }
+                    await asyncio.sleep(0.05)
+                if node == "editor" and out.get("reply"):
+                    yield "event: answer\ndata: " + json.dumps({"reply": out["reply"]}) + "\n\n"
+                    await asyncio.sleep(0.05)
+                if node == "planner" and out.get("plan_report"):
+                    yield "event: plan\ndata: " + json.dumps(out["plan_report"]) + "\n\n"
+                    await asyncio.sleep(0.05)
+                if node == "critic" and out.get("critique"):
+                    c = out["critique"]
+                    passes.append(c)
+                    yield (
+                        "event: critique\ndata: "
+                        + json.dumps(
+                            {
+                                "pass": len(passes),
+                                "has_issues": c.get("has_issues", False),
+                                "needs_refine": c.get("needs_refine", False),
+                                "source": c.get("source"),
+                                "summary": c.get("summary"),
+                                "gap_scale": c.get("gap_scale"),
+                                "issue_count": len(c.get("issues", [])),
+                                "issues": c.get("issues", []),
+                            }
+                        )
+                        + "\n\n"
                     )
-                    + "\n\n"
+                    await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            # The client hung up (usually the Stop button aborting the fetch). Record the
+            # run as stopped, then let the cancellation propagate. `shield` so the write
+            # survives this coroutine's own await being cancelled — the inner task keeps
+            # running on the loop.
+            try:
+                await asyncio.shield(
+                    _close_run_row(
+                        run_id,
+                        state=state,
+                        outcome="stopped",
+                        passes=passes,
+                        stage_ms=stage_ms,
+                        total_ms=(time.perf_counter() - started) * 1000,
+                        meter=meter,
+                        drawn=drawn,
+                    )
                 )
-                await asyncio.sleep(0.05)
+            except asyncio.CancelledError:
+                pass
+            raise
+        except Exception:
+            outcome = "failed"
+            logger.exception("agent run %s failed mid-stream", run_id)
 
         # Persist the plan this run settled on, so the next prompt edits it instead of
-        # starting over. Failure here must not break the response — the diagram is drawn.
-        final_plan = state.get("llm_plan")
-        if isinstance(final_plan, DiagramPlan):
-            try:
-                async with session_factory()() as db:
-                    await repo.save_plan(
-                        db,
-                        payload.session_id,
-                        final_plan.model_dump_json(exclude_none=True),
-                        user.id,
+        # starting over — but only from a run that finished: a half-built plan from a
+        # failed run would be the base the next edit starts from. Failure here must not
+        # break the response.
+        if outcome == "completed":
+            final_plan = state.get("llm_plan")
+            if isinstance(final_plan, DiagramPlan):
+                try:
+                    async with session_factory()() as db:
+                        await repo.save_plan(
+                            db,
+                            payload.session_id,
+                            final_plan.model_dump_json(exclude_none=True),
+                            user.id,
+                        )
+                except Exception:
+                    logger.warning(
+                        "could not persist the plan for %s", payload.session_id, exc_info=True
                     )
-            except Exception:
-                logger.warning(
-                    "could not persist the plan for %s", payload.session_id, exc_info=True
-                )
 
-        # Close the ledger row. This is the only place the run's own measurements are
-        # kept — see EVAL-PLAN.md §3. Failure must not break the response: the diagram is
-        # already drawn, and losing a metrics row is not worth losing a diagram over.
-        try:
-            record = record_from_run(
-                state,
-                outcome="completed",
-                passes=passes,
-                stage_ms=stage_ms,
-                total_ms=(time.perf_counter() - started) * 1000,
-                meter=meter,
-                shapes=drawn,
-            )
-            async with session_factory()() as db:
-                await repo.complete_run(
-                    db,
-                    run_id,
-                    outcome=record.outcome,
-                    shape_count=drawn,
-                    iterations=len(passes),
-                    metrics=json.dumps(record.as_dict()),
-                )
-        except Exception:
-            logger.warning("could not record metrics for run %s", run_id, exc_info=True)
+        await _close_run_row(
+            run_id,
+            state=state,
+            outcome=outcome,
+            passes=passes,
+            stage_ms=stage_ms,
+            total_ms=(time.perf_counter() - started) * 1000,
+            meter=meter,
+            drawn=drawn,
+        )
+
+        if outcome == "failed":
+            # End the stream with an explicit error rather than a truncated success, so the
+            # client shows "generation failed" instead of waiting on a `done` that isn't
+            # coming.
+            yield "event: error\ndata: " + json.dumps({"error": "the run failed"}) + "\n\n"
+            return
 
         refined = len(passes) > 1
         yield (
@@ -410,6 +493,9 @@ async def agent_stream(
                     "shapes": drawn,
                     "critic_source": passes[-1].get("source") if passes else None,
                     "final_clean": bool(passes) and not passes[-1].get("needs_refine", False),
+                    # A discretionary call (plan repair / vision) was skipped to hold the
+                    # run under its per-run cost cap.
+                    "budget_capped": bool(state.get("budget_capped")),
                     # Wall clock for the whole run. Surfaced so slow stages are visible
                     # instead of guessed at — every stage here is one network round trip.
                     "elapsed_s": round(time.perf_counter() - started, 2),
