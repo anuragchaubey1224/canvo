@@ -73,7 +73,7 @@ erasorAdvanced/
 ```
 agent/app/
 ├── api/                        # (P3) split main.py when routes > ~5: agent.py, sessions.py, auth.py, share.py
-├── auth/                       # (P3) Supabase JWT verification middleware, quota enforcement
+├── auth/                       # session auth, password reset, login throttle (shipped); quota lives in app/quota.py
 ├── tracing/                    # (v1) our own per-node tracing: span model, decorator, /traces endpoint
 ├── rag/                        # (v1) pattern library: embeddings, pgvector queries, seed data
 ├── tools/

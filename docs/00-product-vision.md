@@ -50,7 +50,7 @@ Legend: ✅ shipped in Canvo · 🔨 in progress / planned (roadmap phase in par
 | **Spec ingestion: SQL → ERD, OpenAPI → API map** | ✅ | **Eraser does not have this** — our wedge feature |
 | Self-correcting layout (vision critic) | ✅ | **Eraser does not have this** |
 | Session persistence / files | ✅ | Snapshots via SQLAlchemy async; file manager UI planned (P3) |
-| Auth, workspaces | 🔨 (P3) | Supabase Auth (JWT) |
+| Auth, workspaces | ✅ auth / ➖ workspaces | Own email+password sessions (ADR-014); single-user by design for now |
 | Sharing (read-only links) | 🔨 (P3) | Signed share links on snapshots |
 | Real-time multiplayer | ➖ (post-v1) | tldraw sync exists; deferred — single-player + share links first |
 | Export (PNG/SVG/Mermaid) | 🔨 (P4) | tldraw export APIs + Mermaid emitter |
