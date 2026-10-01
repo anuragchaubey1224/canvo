@@ -159,7 +159,7 @@ plan can (icons, containers styling) — exports are lossy-but-useful; PNG/SVG c
 
 ---
 
-## ADR-011 — Supabase for auth + DB hosting; we only verify JWTs
+## ADR-011 — Supabase for auth + DB hosting; we only verify JWTs *(superseded by ADR-014 for auth; Supabase still hosts Postgres)*
 
 **Context.** Auth is undifferentiated heavy lifting with security downside; we need it by P3.
 
@@ -169,6 +169,24 @@ wall before the first diagram). Same vendor hosts Postgres+pgvector — one free
 
 **Consequences.** (+) $0 to start, minutes to integrate, standard JWT semantics. (−) Vendor
 coupling for identity — bounded: standard JWT + Postgres export mean migration stays feasible.
+
+---
+
+## ADR-014 — Own sessions-based auth instead of Supabase Auth / JWT
+
+**Context.** ADR-011 planned Supabase Auth. By P3 we needed data isolation, a per-account
+generation allowance and recovery flows tied tightly to our own schema.
+
+**Decision.** Email+password in `app/auth/`: Argon2id (OWASP floor, transparent rehash,
+dummy verify on missing accounts), opaque `token_urlsafe(32)` session tokens (only SHA-256
+stored) in an httpOnly+SameSite=Lax+Secure cookie, sliding 30-day / 90-day-absolute expiry.
+Reset/verify links are single-use, purpose-bound, short-lived and stored hashed. Every repo
+accessor takes `user_id`.
+
+**Consequences.** (+) Instant revocation, no JWT pitfalls, one fewer vendor on the identity
+path. (−) We own the security surface (covered by `test_auth.py`, `test_recovery.py`); login
+throttle is in-process, so prod runs one worker until Redis; API must be a subdomain of the
+app (Lax cookie). Supabase remains the Postgres host only.
 
 ---
 

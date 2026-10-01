@@ -37,7 +37,7 @@ agent testable without a browser, and concentrates the engineering where Python 
 │  Critic: deterministic geometry + vision (Pillow render → LLM judge)   │
 │  Guardrails: iteration caps, cost caps, input sanitization             │
 │  Persistence: SQLAlchemy async → SQLite (dev) / Postgres (prod)        │
-│  Auth & quotas (P3): Supabase JWT verify, per-user rate limits         │
+│  Auth & quotas: session cookies (Argon2id), per-account allowance         │
 └──────────────┬─────────────────────────────────────────────────────────┘
                ▼
         Postgres (+ pgvector for RAG, v1) — Supabase or any managed PG

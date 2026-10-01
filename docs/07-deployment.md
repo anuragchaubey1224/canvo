@@ -71,8 +71,8 @@ and it keeps the DB decoupled from whichever compute host we're on this month.
 ## Configuration & secrets
 
 - All config via env vars, documented in `agent/.env.example` — `LLM_MODEL`,
-  `OPENROUTER_API_KEY`/`ANTHROPIC_API_KEY`, `DATABASE_URL`, plus (P3) Supabase JWT settings
-  and quota knobs.
+  `OPENROUTER_API_KEY`/`ANTHROPIC_API_KEY`, `DATABASE_URL`, plus `ALLOWED_ORIGINS`, `COOKIE_SECURE`, `APP_URL`, `EMAIL_BACKEND`/`RESEND_API_KEY`,
+  and the quota/cost knobs (`FREE_RUN_LIMIT`, `DAILY_RUN_LIMIT`, `MAX_RUN_COST_USD`).
 - Prod secrets live in the platform's secret store (Render service → Environment), never in the repo,
   never in build args, never printed in logs.
 - CORS locked to the web origin(s) in prod; permissive only in dev.

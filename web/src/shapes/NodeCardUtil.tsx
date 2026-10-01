@@ -16,7 +16,8 @@ import {
   type TLBaseShape,
   type TLResizeInfo,
 } from 'tldraw'
-import { Icon, iconFor } from './icons'
+import { iconFor } from './iconset'
+import { Icon } from './icons'
 import { accent, shapeTheme } from './theme'
 
 export interface NodeCardProps {

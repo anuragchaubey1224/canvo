@@ -6,13 +6,15 @@ then deepen** — a live URL is half the signal, and real-user feedback beats sp
 
 ## Where we are today (baseline — done ✅)
 
-- Agent runs end-to-end on our **own graph engine**: Router → Planner → Drawer → Critic.
-- **SQL DDL → ERD** and **OpenAPI → API surface** (deterministic, zero-token, tested).
-- **Freeform text → diagram** via LLM planner (structured output / tool-calling).
-- **Self-correcting critic live**: geometry pass + vision pass (Pillow render → LLM judge),
-  bounded refine loop, streamed `critique` events, visible in the UI's Critic strip.
-- tldraw client with design tokens (light+dark), sample switcher, session autosave/restore.
-- Persistence (SQLAlchemy async, snapshot API). 26 tests, ruff/mypy clean, Docker + compose.
+- **Own graph engine**: router → editor → specifier → planner → drawer → critic (refine loop).
+- **SQL → ERD**, **OpenAPI → API surface** (deterministic), **freeform text → diagram** (Spec
+  Writer + planner + validator), **conversational editing** (typed ops, `answer` intent).
+- **Quality (P1/P2 done)**: groups, composition grid, A* router, custom shapes, geometry + vision critic.
+- **Product shell**: landing, dashboard, chat rail, own auth (ADR-014), reset/verify email, Alembic.
+- **Guardrails/measurement**: generation allowance, per-run cost cap, run ledger with tokens/cost/latency/outcome.
+- **Eval**: Tier 1 golden set (24 cases) in CI; Tier 2 harness built, fixtures pending a recording run.
+- ~220 tests, ruff/mypy/lint/build green, CI live, Docker + compose. **Not deployed yet.**
+- Next: see `PLAN-next.md`.
 
 ---
 
@@ -20,8 +22,7 @@ then deepen** — a live URL is half the signal, and real-user feedback beats sp
 
 **Goal: a stranger can open a URL and generate a diagram.** Everything else builds on this.
 
-- [ ] Unblock CI: `gh auth refresh -h github.com -s workflow`, move
-      `.github/ci.yml.pending` → `.github/workflows/ci.yml`.
+- [x] CI live (`.github/workflows/ci.yml`).
 - [ ] Deploy agent (Fly.io or Railway, one small instance) with managed Postgres (Supabase).
 - [ ] Deploy web (Cloudflare Pages), point at the agent URL, lock down CORS.
 - [ ] Server-side kill-switches: per-IP daily generation cap, payload size cap, model spend
@@ -68,14 +69,14 @@ colored diagram we're proud to screenshot side-by-side.
 
 **Goal: people can come back, and we can afford them.**
 
-- [ ] Supabase Auth (JWT verified in FastAPI middleware); anonymous mode stays for first-touch.
+- [x] Auth shipped — own sessions, not Supabase (ADR-014).
 - [ ] File manager: sessions become named files owned by users; list/rename/delete UI.
 - [ ] Share links: signed read-only tokens onto snapshots.
 - [ ] Metering: `generations` table (input kind, model, tokens, cost, critic iterations) —
       this powers quotas *and* our cost dashboards *and* future billing.
 - [ ] Quotas: free-tier daily AI-generation limit enforced server-side; deterministic paths
       unlimited (they cost us nothing — and that's a marketing line).
-- [ ] Alembic migrations from here on.
+- [x] Alembic migrations.
 - [ ] Sentry both sides; uptime monitoring.
 
 **Exit criteria:** signup → create → save → share works; per-user cost visible in a query.

@@ -12,14 +12,14 @@ can hold it in their head), and **run cost** (target: whole product < $25/mo unt
 | Web framework | **FastAPI (async) + uvicorn** | Native SSE/streaming, Pydantic integration, tiny footprint. Rejected Django (heavy for an API-only service), Flask (weak async). |
 | Agent orchestration | **Our own graph engine** (`app/graph/engine.py`, ~110 lines) | Full control, zero framework churn/lock-in, trivially debuggable. Rejected LangGraph (see ADR-002). |
 | LLM SDK layer | **langchain-anthropic / langchain-openai** (thin client usage only) | Provider abstraction + structured-output/tool-calling for free. This is an SDK, not orchestration. If it ever fights us, we hand-roll tool-calling (flagged as a separate decision). |
-| LLM providers | **OpenRouter** (default, cheap models) + **Anthropic direct** + **BYOK** | One abstraction (`app/llm.py`), env-switchable. Default model `openai/gpt-4o-mini` ($0.15/M in) — verified reliable for function-calling. Premium tier upgrades planner/critic to a Claude model. |
+| LLM providers | **OpenRouter** (default, cheap models) + **Anthropic direct** + **BYOK** | One abstraction (`app/llm.py`), env-switchable. Default model `google/gemini-3.7-flash` (~$0.0036/generation, multimodal — the vision Critic needs image input, which rules out text-only models like DeepSeek V4). Premium tier upgrades planner/critic to a Claude model. |
 | Validation / contract | **Pydantic v2** | Shared-schema mirroring, structured LLM output, request validation — one tool for all three. |
 | DB / ORM | **PostgreSQL + SQLAlchemy 2.0 async**; SQLite in dev | Postgres because pgvector (RAG) and every host has it managed. SQLAlchemy async keeps the whole service on one event loop. |
-| Migrations | **Alembic** (from P3 onward) | The standard; nothing else worth considering. |
+| Migrations | **Alembic** (shipped; `init_db()` runs `upgrade head` on startup) | The standard; nothing else worth considering. |
 | Vector store | **pgvector** (inside the same Postgres) | RAG without a second database or vendor. Rejected Pinecone/Weaviate — cost and ops for zero benefit at our scale. |
-| Auth | **Supabase Auth (JWT)**, verified in FastAPI middleware | Free tier covers thousands of users; we only verify tokens — no session infra to run. Rejected rolling our own auth (undifferentiated risk). |
+| Auth | **Own email+password** (`app/auth/`): Argon2id, opaque httpOnly session cookies, single-use hashed reset/verify tokens | Shipped. Opaque tokens over JWT: revocation is a DELETE, no blocklist/key-rotation/`alg` risk. Supabase is used for Postgres only (ADR-014, supersedes ADR-011). |
 | Rendering (vision critic) | **Pillow** | Rasterize planned actions → PNG server-side, no headless browser. Rejected Playwright screenshots (heavy, slow, flaky in containers). |
-| Rate limiting / quotas | In-app (Postgres counters) first; Redis only if/when needed | Don't run Redis before something requires it. |
+| Rate limiting / quotas | Per-account + global daily allowance from the `runs` ledger (Postgres); login throttle is in-process | Shipped. Login throttle needs ONE worker or Redis. |
 
 ## Frontend (thin by policy)
 
